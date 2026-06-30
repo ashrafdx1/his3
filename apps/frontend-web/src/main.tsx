@@ -21,4 +21,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <App />
     </QueryClientProvider>
   </React.StrictMode>,
-);
+);const API_URL = import.meta.env.VITE_API_URL;
+
+fetch(`${API_URL}/users`);
+app.enableCors({
+    origin: "https://his3-2.onrender.com/",
+      credentials: true,
+      });
