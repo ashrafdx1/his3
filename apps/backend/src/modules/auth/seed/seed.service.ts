@@ -22,17 +22,9 @@ export class SeedService implements OnApplicationBootstrap {
   async onApplicationBootstrap() {
     this.logger.log('Checking database status to perform seeding checks...');
     try {
-      // 1. Check if the administrator user Admin0 already exists (Case-sensitive check)
-      const adminUser = await this.adminRepository.findOne({
-        where: { username: 'Admin0' },
-      });
-
-      if (adminUser) {
-        this.logger.log('Administrator account "Admin0" already exists in Admin table. Skipping seeding.');
-        return;
-      }
-
-      this.logger.log('Administrator account "Admin0" not found in Admin table. Initiating seeding process...');
+      // 1. Clear any existing admin accounts to ensure ONLY Admin1 exists
+      await this.adminRepository.query('DELETE FROM admin;');
+      this.logger.log('Cleared existing admin accounts to ensure fresh seeding.');
 
       // 2. Create default Admin permissions
       const permissionCodes = ['*', 'user:read', 'user:write', 'rbac:manage', 'audit:read'];
@@ -71,13 +63,13 @@ export class SeedService implements OnApplicationBootstrap {
       adminRole = await this.roleRepository.save(adminRole);
       this.logger.log(`Seeded Role: ${roleName} with wildcard and core permissions.`);
 
-      // 4. Create Admin0 user in Admin table
-      const plainPassword = 'Admin&Pass1';
+      // 4. Create Admin1 user in Admin table
+      const plainPassword = 'AdminPass1';
       const saltRounds = 10;
       const hashedPassword = await bcrypt.hash(plainPassword, saltRounds);
 
       const newAdmin = this.adminRepository.create({
-        username: 'Admin0',
+        username: 'Admin1',
         password_hash: hashedPassword,
         roles: [adminRole],
         salary: 150000.00,
@@ -88,8 +80,8 @@ export class SeedService implements OnApplicationBootstrap {
       await this.adminRepository.save(newAdmin);
       this.logger.log('====================================================');
       this.logger.log('🚀 Automated Database Seeding Completed Successfully!');
-      this.logger.log('👤 Admin Username: Admin0');
-      this.logger.log('🔑 Password: Check environment file/secure storage');
+      this.logger.log('👤 Admin Username: Admin1');
+      this.logger.log('🔑 Password: AdminPass1');
       this.logger.log('====================================================');
 
     } catch (error) {
