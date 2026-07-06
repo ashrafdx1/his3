@@ -1,8 +1,10 @@
 import { Controller, Get, Post, Body, Param, UseGuards, Req, HttpCode, HttpStatus, ForbiddenException } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @UseGuards(JwtAuthGuard)
+@SkipThrottle()
 @Controller('messages')
 export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
@@ -45,6 +47,19 @@ export class MessagesController {
   }
 
   // ================= Admin Endpoints =================
+
+  @Post('admin/start-chat')
+  @HttpCode(HttpStatus.OK)
+  async adminStartChat(
+    @Req() req: any,
+    @Body() body: { employeeId: number }
+  ) {
+    const isAdmin = req.user.isAdmin === true;
+    if (!isAdmin) {
+      throw new ForbiddenException('Admin access only.');
+    }
+    return this.messagesService.adminStartChat(body.employeeId);
+  }
 
   @Get('admin/threads')
   async getAdminThreads(@Req() req: any) {
@@ -102,6 +117,16 @@ export class MessagesController {
       throw new ForbiddenException('Admin access only.');
     }
     return this.messagesService.adminCloseThread(parseInt(id, 10));
+  }
+
+  @Post('admin/:id/archive')
+  @HttpCode(HttpStatus.OK)
+  async adminArchiveThread(@Req() req: any, @Param('id') id: string) {
+    const isAdmin = req.user.isAdmin === true;
+    if (!isAdmin) {
+      throw new ForbiddenException('Admin access only.');
+    }
+    return this.messagesService.adminArchiveThread(parseInt(id, 10));
   }
 
   @Post('admin/:id/mark-read')

@@ -523,4 +523,147 @@ tr:hover {
   animation: none !important;
 }
 
+/* ==========================================
+   RESPONSIVE DESIGN SYSTEM (MOBILE & TABLET)
+   ========================================== */
+
+/* Utility class to scroll tables horizontally on small screens */
+.table-scroll-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 20px;
+  border-radius: 8px;
+}
+
+/* Ensure smooth touch scrolling on mobile for overflow-x divs */
+div[style*="overflowX: auto"], div[style*="overflow-x: auto"] {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* Custom hamburger button visible on mobile */
+.hamburger-btn {
+  display: none !important;
+}
+
+.header-actions-mobile {
+  display: none !important;
+}
+
+.mobile-settings-logout {
+  display: none !important;
+}
+
+@media (max-width: 1024px) {
+  /* Layout changes */
+  .dashboard-layout {
+    flex-direction: column !important;
+  }
+
+  .sidebar-aside {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: -320px !important; /* Start offscreen */
+    width: 290px !important;
+    height: 100vh !important;
+    z-index: 1001 !important;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25) !important;
+    background-color: hsl(var(--bg-secondary) / 0.98) !important;
+    backdrop-filter: blur(25px) !important;
+  }
+
+  /* Support RTL slide in from right */
+  html[dir="rtl"] .sidebar-aside {
+    left: auto !important;
+    right: -320px !important;
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .sidebar-aside.mobile-open {
+    left: 0 !important;
+  }
+
+  html[dir="rtl"] .sidebar-aside.mobile-open {
+    right: 0 !important;
+    left: auto !important;
+  }
+
+  /* Main content spacing */
+  .main-content {
+    padding: 24px 16px !important;
+  }
+
+  /* Hamburger button appears */
+  .hamburger-btn {
+    display: flex !important;
+  }
+
+  /* Header wraps cleanly */
+  .header-container {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    height: 60px !important;
+    padding: 0 16px !important;
+    gap: 0 !important;
+  }
+
+  .header-title-section {
+    display: none !important;
+  }
+
+  .header-actions-desktop {
+    display: none !important;
+  }
+
+  .header-actions-mobile {
+    display: flex !important;
+    width: 100% !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-direction: row !important;
+  }
+
+  .mobile-settings-logout {
+    display: block !important;
+  }
+
+  /* Executive stats widgets */
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+    gap: 16px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Grid layouts */
+  .grid-two-cols, .grid-three-cols {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+  
+  /* Flex actions wrap */
+  .action-buttons-row {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-content {
+    padding: 16px 12px !important;
+  }
+  .glass-panel {
+    padding: 16px !important;
+  }
+  .login-glass-panel {
+    padding: 24px 16px !important;
+  }
+}
+
 

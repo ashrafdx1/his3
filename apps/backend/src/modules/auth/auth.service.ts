@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/c
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { Employee } from './entities/employee.entity';
 import { Admin } from './entities/admin.entity';
 import { RefreshToken } from './entities/refresh-token.entity';

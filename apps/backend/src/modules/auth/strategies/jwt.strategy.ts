@@ -17,7 +17,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       userId: payload.sub, 
       username: payload.username, 
       roles: payload.roles || [],
-      permissions: payload.permissions || []
+      permissions: payload.permissions || [],
+      isAdmin: payload.isAdmin === true || (payload.roles && (payload.roles.includes('ADMIN') || payload.roles.includes('ADMINISTRATOR'))),
+      isHRManager: payload.isHRManager === true
     };
   }
 }

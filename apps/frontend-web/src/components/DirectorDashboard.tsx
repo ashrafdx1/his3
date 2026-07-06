@@ -33,6 +33,18 @@ export function DirectorDashboard({
   const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
+  const [navWarning, setNavWarning] = useState<{
+    show: boolean;
+    targetSection: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    show: false,
+    targetSection: '',
+    message: '',
+    onConfirm: () => {},
+  });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [budgetData, setBudgetData] = useState<any[]>([]);
   const [budgetFormMode, setBudgetFormMode] = useState<'ADD' | 'EDIT' | null>(null);
   const [editingBudget, setEditingBudget] = useState<any | null>(null);
@@ -52,7 +64,72 @@ export function DirectorDashboard({
   const [isSendingAdminMessage, setIsSendingAdminMessage] = useState(false);
   const [isLoadingThreads, setIsLoadingThreads] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [msgTab, setMsgTab] = useState<'active' | 'archived'>('active');
+  const chatInputRef = React.useRef<HTMLInputElement>(null);
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [selectedThreadId, threads.find(t => t.id === selectedThreadId)?.messages]);
+
+  useEffect(() => {
+    if (selectedThreadId !== null) {
+      const activeThread = threads.find(t => t.id === selectedThreadId);
+      if (activeThread && activeThread.has_admin_unread) {
+        apiClient.post(`/messages/admin/${selectedThreadId}/mark-read`).then(() => {
+          setThreads(prev => prev.map(t => t.id === selectedThreadId ? { ...t, has_admin_unread: false } : t));
+          setUnreadMessagesCount(prev => Math.max(0, prev - 1));
+        }).catch(() => {});
+      }
+    }
+  }, [selectedThreadId, threads]);
+
+
+  const getStatusLabel = (status: string) => {
+    if (lang === 'ar') {
+      switch (status) {
+        case 'PENDING': return 'معلق';
+        case 'ACCEPTED': return 'مفتوح';
+        case 'DENIED': return 'مرفوض';
+        case 'CLOSED': return 'مغلق';
+        case 'ARCHIVED': return 'مؤرشف';
+        default: return status;
+      }
+    } else {
+      switch (status) {
+        case 'PENDING': return 'PENDING';
+        case 'ACCEPTED': return 'OPENED';
+        case 'DENIED': return 'DENIED';
+        case 'CLOSED': return 'CLOSED';
+        case 'ARCHIVED': return 'ARCHIVED';
+        default: return status;
+      }
+    }
+  };
+
+  const getLocalizedSystemMessage = (text: string) => {
+    if (lang !== 'ar') return text;
+    if (text.includes('accepted your message request')) {
+      return 'مرحبًا! لقد قبلت طلب المراسلة الخاص بك. كيف يمكنني مساعدتك؟';
+    } else if (text.includes('closed by the admin')) {
+      return 'تم إغلاق هذه المحادثة من قبل المدير.';
+    } else if (text.includes('started the chat session') || text.includes('started the chat')) {
+      return 'بدأ المدير جلسة المحادثة.';
+    } else if (text.includes('reopened the chat') || text.includes('reopened the chat session')) {
+      return 'أعاد المدير فتح جلسة المحادثة.';
+    } else if (text.includes('requested to reopen')) {
+      return 'طلب الموظف إعادة فتح المحادثة.';
+    } else if (text.includes('denied')) {
+      return 'تم رفض طلب المراسلة من قبل المدير.';
+    } else if (text.includes('archived by the admin')) {
+      return 'تم أرشفة هذه المحادثة من قبل المدير.';
+    }
+    return text;
+  };
 
   const t = translations[lang];
   const isRtl = lang === 'ar';
@@ -71,7 +148,17 @@ export function DirectorDashboard({
     if (!silent) setIsLoadingThreads(true);
     try {
       const response = await apiClient.get('/messages/admin/threads');
-      setThreads(response.data);
+      // Merge incoming data without wiping existing list — prevents flicker 
+      // when admin is viewing a thread while polling updates arrive
+      setThreads(prev => {
+        const incoming: any[] = response.data;
+        if (prev.length === 0) return incoming;
+        // Build a map of existing threads by id to preserve order
+        const prevMap = new Map(prev.map((t: any) => [t.id, t]));
+        // Update existing + add new; preserve order from server
+        const merged = incoming.map((t: any) => prevMap.has(t.id) ? { ...prevMap.get(t.id), ...t } : t);
+        return merged;
+      });
       const unreadCount = response.data.filter((t: any) => t.has_admin_unread).length;
       setUnreadMessagesCount(unreadCount);
     } catch (err) {
@@ -92,8 +179,12 @@ export function DirectorDashboard({
 
   const handleRespondRequest = async (id: number, action: 'ACCEPT' | 'DENY') => {
     try {
+      const targetThread = threads.find(t => t.id === id);
       const res = await apiClient.post(`/messages/admin/${id}/respond`, { action });
-      setThreads(prev => prev.map(t => t.id === id ? res.data : t));
+      setThreads(prev => prev.map(t => t.id === id ? { ...res.data, has_admin_unread: false } : t));
+      if (targetThread?.has_admin_unread) {
+        setUnreadMessagesCount(prev => Math.max(0, prev - 1));
+      }
       triggerToast(action === 'ACCEPT' ? (lang === 'ar' ? 'تم قبول طلب المراسلة' : 'Message request accepted') : (lang === 'ar' ? 'تم رفض طلب المراسلة' : 'Message request denied'));
       fetchThreads(true);
     } catch (e) {
@@ -110,6 +201,7 @@ export function DirectorDashboard({
       setThreads(prev => prev.map(t => t.id === threadId ? res.data : t));
       setAdminMessageText('');
       fetchThreads(true);
+      setTimeout(() => chatInputRef.current?.focus(), 50);
     } catch (e) {
       triggerToast(lang === 'ar' ? 'فشل إرسال الرسالة' : 'Failed to send message.');
     } finally {
@@ -126,6 +218,38 @@ export function DirectorDashboard({
       fetchThreads(true);
     } catch (e) {
       triggerToast(lang === 'ar' ? 'فشل إغلاق المحادثة' : 'Failed to close conversation.');
+    }
+  };
+
+  const handleAdminStartChat = async (employeeId: number) => {
+    try {
+      const res = await apiClient.post('/messages/admin/start-chat', { employeeId });
+      const newThread = res.data;
+      setThreads(prev => {
+        const exists = prev.some(t => t.id === newThread.id);
+        if (exists) {
+          return prev.map(t => t.id === newThread.id ? newThread : t);
+        } else {
+          return [newThread, ...prev];
+        }
+      });
+      setSelectedThreadId(newThread.id);
+      setMsgTab('active');
+      triggerToast(lang === 'ar' ? 'تم بدء المحادثة' : 'Chat started.');
+      setTimeout(() => chatInputRef.current?.focus(), 150);
+    } catch (e) {
+      triggerToast(lang === 'ar' ? 'فشل بدء المحادثة' : 'Failed to start chat.');
+    }
+  };
+
+  const handleAdminArchiveThread = async (threadId: number) => {
+    try {
+      const res = await apiClient.post(`/messages/admin/${threadId}/archive`);
+      setThreads(prev => prev.map(t => t.id === threadId ? res.data : t));
+      triggerToast(lang === 'ar' ? 'تم أرشفة المحادثة' : 'Conversation archived.');
+      fetchThreads(true);
+    } catch (e) {
+      triggerToast(lang === 'ar' ? 'فشل أرشفة المحادثة' : 'Failed to archive conversation.');
     }
   };
 
@@ -240,7 +364,7 @@ export function DirectorDashboard({
     if (activeSection === 'departments-management') {
       fetchDepartments();
     }
-    if (activeSection === 'employees-management') {
+    if (activeSection === 'employees-management' || activeSection === 'messages') {
       fetchEmployees();
     }
     if (activeSection === 'financial-overview') {
@@ -453,6 +577,128 @@ export function DirectorDashboard({
   };
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  const hasUnsavedDeptChanges = () => {
+    if (formMode === 'ADD') {
+      return !!(newDeptName.trim() || newDeptDesc.trim() || newDeptArabicName.trim() || newDeptArabicDesc.trim());
+    }
+    if (formMode === 'EDIT' && editingDept) {
+      return newDeptName !== (editingDept.name || '') ||
+             newDeptDesc !== (editingDept.description || '') ||
+             newDeptArabicName !== (editingDept['dept-arabic-name'] || '') ||
+             newDeptArabicDesc !== (editingDept['dept-arabic-description'] || '');
+    }
+    return false;
+  };
+
+  const hasUnsavedEmpChanges = () => {
+    if (empFormMode === 'ADD') {
+      return !!(
+        empArabicFirst.trim() || empArabicMiddle.trim() || empArabicLast.trim() ||
+        empEnglishFirst.trim() || empEnglishMiddle.trim() || empEnglishLast.trim() ||
+        empGender || empDob || empType ||
+        empPhone.trim() || empEmail.trim() || empSalary.trim() || empPictureUrl
+      );
+    }
+    if (empFormMode === 'EDIT' && editingEmp) {
+      return empArabicFirst !== (editingEmp.arabic_first_name || '') ||
+             empArabicMiddle !== (editingEmp.arabic_middle_name || '') ||
+             empArabicLast !== (editingEmp.arabic_last_name || '') ||
+             empEnglishFirst !== (editingEmp.english_first_name || '') ||
+             empEnglishMiddle !== (editingEmp.english_middle_name || '') ||
+             empEnglishLast !== (editingEmp.english_last_name || '') ||
+             empGender !== (editingEmp.gender || '') ||
+             empDob !== (editingEmp.date_of_birth ? editingEmp.date_of_birth.split('T')[0] : '') ||
+             empType !== (editingEmp.employment_type || '') ||
+             empPhone !== (editingEmp.phone_number || '') ||
+             empEmail !== (editingEmp.email || '') ||
+             empSalary !== (editingEmp.salary ? String(editingEmp.salary) : '') ||
+             empPictureUrl !== (editingEmp.employee_picture_url || '');
+    }
+    return false;
+  };
+
+  const hasUnsavedBudgetChanges = () => {
+    if (budgetFormMode === 'ADD') {
+      return !!(budgetNameInput.trim() || budgetAmountInput.trim());
+    }
+    if (budgetFormMode === 'EDIT' && editingBudget) {
+      return budgetNameInput !== (editingBudget.budget_name || '') ||
+             parseFloat(budgetAmountInput) !== (editingBudget.budget_amount ? parseFloat(editingBudget.budget_amount) : 0);
+    }
+    return false;
+  };
+
+  const checkUnsavedChangesBeforeNavigation = (targetSection: string) => {
+    if (activeSection === 'departments-management' && hasUnsavedDeptChanges()) {
+      setNavWarning({
+        show: true,
+        targetSection,
+        message: lang === 'ar'
+          ? 'بعض البيانات التي أدخلتها في نموذج القسم قد تضيع.. الاستمرار سيؤدي إلى حذف بياناتك'
+          : 'some data you entered in the department form may be lost..proceed will delete your data',
+        onConfirm: () => {
+          setFormMode(null);
+          setEditingDept(null);
+          setNewDeptName('');
+          setNewDeptDesc('');
+          setNewDeptArabicName('');
+          setNewDeptArabicDesc('');
+          if (targetSection === 'settings') {
+            setShowSettings(true);
+          } else {
+            setActiveSection(targetSection);
+            setShowSettings(false);
+          }
+          setNavWarning(prev => ({ ...prev, show: false }));
+        }
+      });
+      return false;
+    } else if (activeSection === 'employees-management' && hasUnsavedEmpChanges()) {
+      setNavWarning({
+        show: true,
+        targetSection,
+        message: lang === 'ar'
+          ? 'بعض البيانات التي أدخلتها في نموذج الموظف قد تضيع.. الاستمرار سيؤدي إلى حذف بياناتك'
+          : 'some data you entered in the employee form may be lost..proceed will delete your data',
+        onConfirm: () => {
+          setEmpFormMode(null);
+          resetEmpForm();
+          if (targetSection === 'settings') {
+            setShowSettings(true);
+          } else {
+            setActiveSection(targetSection);
+            setShowSettings(false);
+          }
+          setNavWarning(prev => ({ ...prev, show: false }));
+        }
+      });
+      return false;
+    } else if (activeSection === 'financial-overview' && hasUnsavedBudgetChanges()) {
+      setNavWarning({
+        show: true,
+        targetSection,
+        message: lang === 'ar'
+          ? 'بعض البيانات التي أدخلتها في نموذج الميزانية قد تضيع.. الاستمرار سيؤدي إلى حذف بياناتك'
+          : 'some data you entered in the budget form may be lost..proceed will delete your data',
+        onConfirm: () => {
+          setBudgetFormMode(null);
+          setEditingBudget(null);
+          setBudgetNameInput('');
+          setBudgetAmountInput('');
+          if (targetSection === 'settings') {
+            setShowSettings(true);
+          } else {
+            setActiveSection(targetSection);
+            setShowSettings(false);
+          }
+          setNavWarning(prev => ({ ...prev, show: false }));
+        }
+      });
+      return false;
+    }
+    return true;
+  };
 
   const handleEmpFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -672,7 +918,15 @@ export function DirectorDashboard({
   const getFullProfilePicUrl = (path: string | null) => {
     if (!path) return '';
     if (path.startsWith('http://') || path.startsWith('https://')) return path;
-    return `http://localhost:3000${path}`;
+    const base = (() => {
+      const url = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1/v1';
+      try {
+        return new URL(url).origin;
+      } catch (e) {
+        return 'http://localhost:3000';
+      }
+    })();
+    return `${base}${path}`;
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -769,7 +1023,7 @@ export function DirectorDashboard({
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', direction: isRtl ? 'rtl' : 'ltr' }}>
+    <div className="dashboard-layout" style={{ display: 'flex', minHeight: '100vh', position: 'relative', direction: isRtl ? 'rtl' : 'ltr' }}>
       
       {/* 1. Welcome Overlay Screen */}
       {showWelcome && (
@@ -844,7 +1098,7 @@ export function DirectorDashboard({
       )}
 
       {/* Left Navigation Sidebar */}
-      <aside className="glass-panel" style={{
+      <aside className={`glass-panel sidebar-aside ${isMobileMenuOpen ? 'mobile-open' : ''}`} style={{
         width: '320px',
         borderRadius: '0',
         borderLeft: isRtl ? '1px solid hsl(var(--border-color))' : 'none',
@@ -911,8 +1165,11 @@ export function DirectorDashboard({
             <button
               key={item.id}
               onClick={() => {
-                setActiveSection(item.id);
-                setShowSettings(false);
+                setIsMobileMenuOpen(false);
+                if (checkUnsavedChangesBeforeNavigation(item.id)) {
+                  setActiveSection(item.id);
+                  setShowSettings(false);
+                }
               }}
               className="sidebar-nav-btn"
               style={{
@@ -931,7 +1188,7 @@ export function DirectorDashboard({
                 gap: '2px'
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' /* , flexDirection: isRtl ? 'row-reverse' : 'row' */ }}>
                 <div style={{ fontSize: '0.88rem', fontWeight: 600 }}>{item.label}</div>
                 {item.id === 'messages' && unreadMessagesCount > 0 && (
                   <span style={{
@@ -973,7 +1230,7 @@ export function DirectorDashboard({
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         
         {/* Top Header */}
-        <header className="glass-panel" style={{
+        <header className="glass-panel header-container" style={{
           height: '75px',
           borderRadius: '0',
           borderRight: 'none',
@@ -988,8 +1245,8 @@ export function DirectorDashboard({
           position: 'sticky',
           top: 0
         }}>
-          {/* Header Title */}
-          <div>
+          {/* Header Title (Desktop only) */}
+          <div className="header-title-section">
             <h1 style={{ fontSize: '1.25rem', fontWeight: 700 }}>
               {showSettings 
                 ? t.settingsTitle 
@@ -1008,11 +1265,10 @@ export function DirectorDashboard({
             </h1>
           </div>
 
-          {/* Header Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            
+          {/* Desktop-only Header Actions */}
+          <div className="header-actions-desktop" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             {/* Color Swatches */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 6px', background: 'hsl(var(--bg-tertiary))', borderRadius: '20px', border: '1px solid hsl(var(--border-color))' }}>
+            <div className="color-swatches" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 6px', background: 'hsl(var(--bg-tertiary))', borderRadius: '20px', border: '1px solid hsl(var(--border-color))' }}>
               {['blue', 'green', 'purple', 'red', 'orange', 'yellow', 'pink'].map((color) => {
                 const hexMap: Record<string, string> = {
                   blue: '#2563eb',
@@ -1053,7 +1309,12 @@ export function DirectorDashboard({
                 border: '1px solid hsl(var(--border-color))',
                 color: 'hsl(var(--text-secondary))',
                 cursor: 'pointer',
-                padding: '6px 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '38px',
+                padding: '0 16px',
+                boxSizing: 'border-box',
                 borderRadius: '20px',
                 fontSize: '0.8rem',
                 fontWeight: 600,
@@ -1071,7 +1332,9 @@ export function DirectorDashboard({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
-                padding: '6px 12px',
+                height: '38px',
+                padding: '0 12px',
+                boxSizing: 'border-box',
                 background: 'hsl(var(--bg-tertiary))',
                 borderRadius: '20px',
                 border: '1px solid hsl(var(--border-color))',
@@ -1114,7 +1377,7 @@ export function DirectorDashboard({
             {/* Notification Bell Icon Button */}
             <button
               onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
-              className={`header-icon-btn ${showNotificationDrawer ? 'active' : ''}`}
+              className={`header-icon-btn notification-bell-btn ${showNotificationDrawer ? 'active' : ''}`}
               style={{ position: 'relative' }}
               title={t.notificationsTooltip}
             >
@@ -1140,7 +1403,7 @@ export function DirectorDashboard({
             {/* Theme Toggle Button */}
             <button
               onClick={toggleTheme}
-              className="header-icon-btn"
+              className="header-icon-btn theme-toggle-btn"
               title="Toggle Night/Light Mode"
             >
               {theme === 'dark' ? (
@@ -1164,8 +1427,16 @@ export function DirectorDashboard({
 
             {/* Settings Gear Button */}
             <button
-              onClick={() => setShowSettings(!showSettings)}
-              className={`header-icon-btn ${showSettings ? 'active' : ''}`}
+              onClick={() => {
+                if (showSettings) {
+                  setShowSettings(false);
+                } else {
+                  if (checkUnsavedChangesBeforeNavigation('settings')) {
+                    setShowSettings(true);
+                  }
+                }
+              }}
+              className={`header-icon-btn settings-toggle-btn ${showSettings ? 'active' : ''}`}
               title="Profile Settings"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1177,12 +1448,67 @@ export function DirectorDashboard({
             {/* Logout Button */}
             <button
               onClick={triggerLogoutSequence}
-              className="header-icon-btn"
+              className="header-icon-btn logout-btn"
               style={{ color: 'hsl(var(--danger))' }}
               title="Secure Sign Out"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Mobile-only Header Actions (3 items: Burger Button, Admin Name, Settings Icon) */}
+          <div className="header-actions-mobile" style={{ display: 'none', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
+            {/* 1. Burger button */}
+            <button
+              className="hamburger-btn"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              style={{
+                background: 'none',
+                color: 'hsl(var(--text-secondary))',
+                cursor: 'pointer',
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'hsla(var(--accent-blue), 0.08)',
+                border: '1px solid hsla(var(--accent-blue), 0.15)',
+                margin: 0
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+
+            {/* 2. Admin name */}
+            <span className="mobile-admin-name-text">
+              {currentUsername || 'Admin'}
+            </span>
+
+            {/* 3. Settings icon */}
+            <button
+              onClick={() => {
+                if (showSettings) {
+                  setShowSettings(false);
+                } else {
+                  if (checkUnsavedChangesBeforeNavigation('settings')) {
+                    setShowSettings(true);
+                  }
+                }
+              }}
+              className={`header-icon-btn settings-toggle-btn ${showSettings ? 'active' : ''}`}
+              title="Profile Settings"
+              style={{ margin: 0 }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
           </div>
@@ -1210,8 +1536,7 @@ export function DirectorDashboard({
           </div>
         )}
 
-        {/* Main Panel Content Scroll Area */}
-        <main style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
+        <main className="main-content" style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
           
           {/* Settings Section Panel (Takes priority if showSettings is true) */}
           {showSettings ? (
@@ -1232,6 +1557,116 @@ export function DirectorDashboard({
                     {settingsErrorMsg}
                   </div>
                 )}
+
+                {/* Mobile adjustments visible settings (theme colors, theme mode, language switcher) */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px',
+                  paddingBottom: '20px',
+                  marginBottom: '20px',
+                  borderBottom: '1px solid hsla(var(--border-color), 0.6)'
+                }}>
+                  {/* Seven Colors Swatches */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', marginBottom: '8px', fontWeight: 600 }}>
+                      {lang === 'ar' ? 'لون الواجهة المفضل' : 'UI Color Theme'}
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {['blue', 'green', 'purple', 'red', 'orange', 'yellow', 'pink'].map((color) => {
+                        const hexMap: Record<string, string> = {
+                          blue: '#2563eb',
+                          green: '#0d9488',
+                          purple: '#8b5cf6',
+                          red: '#e11d48',
+                          orange: '#ea580c',
+                          yellow: '#ca8a04',
+                          pink: '#db2777'
+                        };
+                        return (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setColorTheme(color)}
+                            style={{
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              backgroundColor: hexMap[color],
+                              border: colorTheme === color ? '2.5px solid hsl(var(--text-primary))' : '1.5px solid transparent',
+                              cursor: 'pointer',
+                              padding: 0,
+                              transform: colorTheme === color ? 'scale(1.15)' : 'none',
+                              transition: 'transform 0.2s'
+                            }}
+                            title={color}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Dark Mode & Language Toggles */}
+                  <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '4px' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', marginBottom: '6px', fontWeight: 600 }}>
+                        {lang === 'ar' ? 'المظهر' : 'Theme Mode'}
+                      </label>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={toggleTheme}
+                        style={{ padding: '8px 16px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'center' }}
+                      >
+                        {theme === 'dark' ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>☀️ {lang === 'ar' ? 'الوضع المضيء' : 'Light Mode'}</span>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>🌙 {lang === 'ar' ? 'الوضع المظلم' : 'Dark Mode'}</span>
+                        )}
+                      </button>
+                    </div>
+
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', marginBottom: '6px', fontWeight: 600 }}>
+                        {lang === 'ar' ? 'اللغة' : 'Language'}
+                      </label>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}
+                        style={{ padding: '8px 16px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'center', fontWeight: 600 }}
+                      >
+                        🌐 {lang === 'en' ? 'العربية' : 'English'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mobile-only Logout/Sign Out Button */}
+                <div className="mobile-settings-logout" style={{ marginTop: '12px', paddingBottom: '20px', borderBottom: '1px solid hsla(var(--border-color), 0.6)' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={triggerLogoutSequence}
+                    style={{
+                      padding: '10px 16px',
+                      fontSize: '0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      width: '100%',
+                      justifyContent: 'center',
+                      color: 'white',
+                      backgroundColor: 'hsl(var(--danger))',
+                      borderColor: 'transparent',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🚪 {lang === 'ar' ? 'تسجيل الخروج الآمن' : 'Secure Sign Out'}
+                  </button>
+                </div>
 
                 {/* Profile Picture Upload Section (Independent of username/password form) */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid hsla(var(--border-color), 0.6)' }}>
@@ -1357,14 +1792,16 @@ export function DirectorDashboard({
                         }}
                       >
                         {showNewPassword ? (
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                            <line x1="1" y1="1" x2="23" y2="23" />
-                          </svg>
-                        ) : (
+                          /* Open Eye SVG (Visible) */
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                             <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        ) : (
+                          /* Striked Eye SVG (Hidden) */
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                            <line x1="1" y1="1" x2="23" y2="23" />
                           </svg>
                         )}
                       </button>
@@ -1404,14 +1841,16 @@ export function DirectorDashboard({
                         }}
                       >
                         {showConfirmPassword ? (
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                            <line x1="1" y1="1" x2="23" y2="23" />
-                          </svg>
-                        ) : (
+                          /* Open Eye SVG (Visible) */
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                             <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        ) : (
+                          /* Striked Eye SVG (Hidden) */
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                            <line x1="1" y1="1" x2="23" y2="23" />
                           </svg>
                         )}
                       </button>
@@ -1429,7 +1868,7 @@ export function DirectorDashboard({
             <>
               {/* SECTION: MESSAGES */}
               {activeSection === 'messages' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '30px', height: 'calc(100vh - 160px)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: 'calc(100vh - 180px)', minHeight: 0 }}>
                   <div>
                     <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '6px' }}>
                       {lang === 'ar' ? 'رسائل الموظفين' : 'Employee Messages'}
@@ -1441,26 +1880,119 @@ export function DirectorDashboard({
                     </p>
                   </div>
 
-                  <div className="glass-panel" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0', padding: 0, overflow: 'hidden', flex: 1, maxHeight: '70vh', borderRadius: '16px' }}>
+                  <div className="glass-panel messaging-grid-container" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '0', padding: 0, overflow: 'hidden', flex: 1, minHeight: 0, borderRadius: '16px' }}>
                     {/* Left Panel: Threads List */}
-                    <div style={{ borderRight: isRtl ? 'none' : '1px solid hsl(var(--border-color))', borderLeft: isRtl ? '1px solid hsl(var(--border-color))' : 'none', display: 'flex', flexDirection: 'column', height: '100%' }}>
-                      <div style={{ padding: '16px', borderBottom: '1px solid hsl(var(--border-color))', fontWeight: 700, fontSize: '0.95rem' }}>
-                        {lang === 'ar' ? 'طلبات المحادثة' : 'Conversations'}
+                    <div style={{ borderRight: isRtl ? 'none' : '1px solid hsl(var(--border-color))', borderLeft: isRtl ? '1px solid hsl(var(--border-color))' : 'none', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                      <div style={{ padding: '16px', borderBottom: '1px solid hsl(var(--border-color))', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                          {lang === 'ar' ? 'المحادثات' : 'Conversations'}
+                        </div>
+                        
+                        {/* Segmented active/archived selector tabs */}
+                        <div style={{ display: 'flex', borderBottom: '1px solid hsla(var(--border-color), 0.5)', marginBottom: '4px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setMsgTab('active')}
+                            style={{
+                              flex: 1,
+                              padding: '8px',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              borderBottom: msgTab === 'active' ? '2px solid hsl(var(--accent-blue))' : '2px solid transparent',
+                              color: msgTab === 'active' ? 'hsl(var(--accent-blue))' : 'hsl(var(--text-secondary))',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {lang === 'ar' ? 'النشطة' : 'Active'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMsgTab('archived')}
+                            style={{
+                              flex: 1,
+                              padding: '8px',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              borderBottom: msgTab === 'archived' ? '2px solid hsl(var(--accent-blue))' : '2px solid transparent',
+                              color: msgTab === 'archived' ? 'hsl(var(--accent-blue))' : 'hsl(var(--text-secondary))',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {lang === 'ar' ? 'المؤرشفة' : 'Archived'}
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <select
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val) {
+                                handleAdminStartChat(parseInt(val, 10));
+                                e.target.value = '';
+                              }
+                            }}
+                            className="form-input"
+                            style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '8px', cursor: 'pointer', flex: 1, backgroundColor: 'hsl(var(--bg-secondary))' }}
+                            defaultValue=""
+                          >
+                            <option value="" disabled>
+                              {lang === 'ar' ? '➕ بدء محادثة جديدة...' : '➕ Start new chat...'}
+                            </option>
+                            {dbEmployees.map((emp: any) => {
+                              const empNameSelect = lang === 'ar' && emp.arabic_first_name
+                                ? `${emp.arabic_first_name} ${emp.arabic_last_name}`
+                                : `${emp.english_first_name} ${emp.english_last_name}`;
+                              return (
+                                <option key={emp.employee_id} value={emp.employee_id}>
+                                  {empNameSelect} ({emp.email})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
                       </div>
-                      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                        {isLoadingThreads && threads.length === 0 ? (
-                          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px' }}>
-                            <div className="spinner" style={{ width: '24px', height: '24px', border: '2.5px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                          </div>
-                        ) : threads.length === 0 ? (
-                          <div style={{ padding: '24px', fontStyle: 'italic', textAlign: 'center', color: 'hsl(var(--text-muted))', fontSize: '0.85rem' }}>
-                            {lang === 'ar' ? 'لا توجد طلبات مراسلة حالياً.' : 'No message requests available.'}
-                          </div>
-                        ) : (
-                          threads.map((thread) => {
+                      
+                      {/* Conversations scroll area with fixed height to force scrollbar */}
+                      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'auto' }}>
+                        {(() => {
+                          const filteredThreads = threads.filter(t => {
+                            if (msgTab === 'archived') {
+                              return t.status === 'ARCHIVED';
+                            } else {
+                              return t.status !== 'ARCHIVED';
+                            }
+                          });
+
+                          if (isLoadingThreads && filteredThreads.length === 0) {
+                            return (
+                              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px' }}>
+                                <div className="spinner" style={{ width: '24px', height: '24px', border: '2.5px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                              </div>
+                            );
+                          }
+
+                          if (filteredThreads.length === 0) {
+                            return (
+                              <div style={{ padding: '24px', fontStyle: 'italic', textAlign: 'center', color: 'hsl(var(--text-muted))', fontSize: '0.85rem' }}>
+                                {lang === 'ar' 
+                                  ? (msgTab === 'archived' ? 'لا توجد محادثات مؤرشفة.' : 'لا توجد محادثات نشطة.') 
+                                  : (msgTab === 'archived' ? 'No archived conversations.' : 'No active conversations.')}
+                              </div>
+                            );
+                          }
+
+                          return filteredThreads.map((thread) => {
                             const isSelected = selectedThreadId === thread.id;
                             const messages = JSON.parse(thread.messages || '[]');
                             const lastMessage = messages[messages.length - 1];
+                            const empName = lang === 'ar' && thread.arabic_first_name
+                              ? `${thread.arabic_first_name} ${thread.arabic_last_name}`
+                              : `${thread.english_first_name} ${thread.english_last_name}`;
+
                             return (
                               <div
                                 key={thread.id}
@@ -1485,7 +2017,7 @@ export function DirectorDashboard({
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
                                     <span style={{ fontWeight: thread.has_admin_unread ? 700 : 600, fontSize: '0.88rem', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                      {thread.english_first_name} {thread.english_last_name}
+                                      {empName}
                                     </span>
                                     <span style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))' }}>
                                       {new Date(thread.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1493,22 +2025,22 @@ export function DirectorDashboard({
                                   </div>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
                                     <span style={{ fontSize: '0.78rem', color: thread.has_admin_unread ? 'hsl(var(--text-primary))' : 'hsl(var(--text-muted))', fontWeight: thread.has_admin_unread ? 600 : 400, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', display: 'block', maxWidth: '140px' }}>
-                                      {lastMessage ? lastMessage.text : (lang === 'ar' ? 'طلب محادثة جديد' : 'New request')}
+                                      {lastMessage ? (lastMessage.isSystem ? getLocalizedSystemMessage(lastMessage.text) : lastMessage.text) : (lang === 'ar' ? 'طلب محادثة جديد' : 'New request')}
                                     </span>
                                     <span className="badge" style={{
                                       fontSize: '0.65rem',
                                       padding: '1px 5px',
                                       borderRadius: '4px',
                                       backgroundColor: thread.status === 'PENDING' ? 'hsla(var(--warning), 0.12)'
-                                        : thread.status === 'ACCEPTED' ? 'hsla(var(--success), 0.12)'
+                                        : (thread.status === 'ACCEPTED' || thread.status === 'ARCHIVED') ? 'hsla(var(--success), 0.12)'
                                         : thread.status === 'DENIED' ? 'hsla(var(--danger), 0.12)'
                                         : 'hsla(var(--text-muted), 0.12)',
                                       color: thread.status === 'PENDING' ? 'hsl(var(--warning))'
-                                        : thread.status === 'ACCEPTED' ? 'hsl(var(--success))'
+                                        : (thread.status === 'ACCEPTED' || thread.status === 'ARCHIVED') ? 'hsl(var(--success))'
                                         : thread.status === 'DENIED' ? 'hsl(var(--danger))'
                                         : 'hsl(var(--text-muted))'
                                     }}>
-                                      {thread.status}
+                                      {getStatusLabel(thread.status)}
                                     </span>
                                   </div>
                                 </div>
@@ -1526,13 +2058,12 @@ export function DirectorDashboard({
                                 )}
                               </div>
                             );
-                          })
-                        )}
+                          });
+                        })()}
                       </div>
                     </div>
-
                     {/* Right Panel: Chat Pane */}
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'hsla(var(--bg-secondary), 0.2)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', backgroundColor: 'hsla(var(--bg-secondary), 0.2)' }}>
                       {selectedThreadId === null ? (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '40px', color: 'hsl(var(--text-muted))' }}>
                           <span style={{ fontSize: '3rem', marginBottom: '12px' }}>💬</span>
@@ -1542,8 +2073,12 @@ export function DirectorDashboard({
                         const thread = threads.find(t => t.id === selectedThreadId);
                         if (!thread) return null;
                         const messages = JSON.parse(thread.messages || '[]');
+                        const empNameHeader = lang === 'ar' && thread.arabic_first_name
+                          ? `${thread.arabic_first_name} ${thread.arabic_last_name}`
+                          : `${thread.english_first_name} ${thread.english_last_name}`;
+
                         return (
-                          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
                             {/* Chat Header */}
                             <div style={{ padding: '16px 20px', borderBottom: '1px solid hsl(var(--border-color))', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'hsl(var(--bg-secondary))', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
@@ -1554,26 +2089,44 @@ export function DirectorDashboard({
                                 </div>
                                 <div style={{ textAlign: isRtl ? 'right' : 'left' }}>
                                   <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>
-                                    {thread.english_first_name} {thread.english_last_name}
+                                    {empNameHeader}
                                   </div>
                                   <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>
                                     {thread.email} • {thread.department_name || (lang === 'ar' ? 'بدون قسم' : 'No Department')}
                                   </div>
                                 </div>
                               </div>
-                              {thread.status === 'ACCEPTED' && (
-                                <button
-                                  onClick={() => handleAdminCloseThread(thread.id)}
-                                  className="btn-delete"
-                                  style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: 'hsla(var(--danger), 0.1)', border: '1px solid hsla(var(--danger), 0.3)', borderRadius: '6px', color: 'hsl(var(--danger))', cursor: 'pointer' }}
-                                >
-                                  ❌ {lang === 'ar' ? 'إغلاق المحادثة' : 'Close Chat'}
-                                </button>
-                              )}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: thread.status === 'ACCEPTED' ? 'hsla(var(--success), 0.12)'
+                                    : thread.status === 'PENDING' ? 'hsla(var(--warning), 0.12)'
+                                    : thread.status === 'DENIED' ? 'hsla(var(--danger), 0.12)'
+                                    : 'hsla(var(--text-muted), 0.12)',
+                                  color: thread.status === 'ACCEPTED' ? 'hsl(var(--success))'
+                                    : thread.status === 'PENDING' ? 'hsl(var(--warning))'
+                                    : thread.status === 'DENIED' ? 'hsl(var(--danger))'
+                                    : 'hsl(var(--text-muted))'
+                                }}>
+                                  {getStatusLabel(thread.status)}
+                                </span>
+                                {thread.status === 'ACCEPTED' && (
+                                  <button
+                                    onClick={() => handleAdminCloseThread(thread.id)}
+                                    className="btn-delete"
+                                    style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: 'hsla(var(--danger), 0.1)', border: '1px solid hsla(var(--danger), 0.3)', borderRadius: '6px', color: 'hsl(var(--danger))', cursor: 'pointer' }}
+                                  >
+                                    ❌ {lang === 'ar' ? 'إغلاق المحادثة' : 'Close Chat'}
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             {/* Chat Body (Messages / Requests) */}
-                            <div style={{ flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', minHeight: 0, overflow: 'auto' }}>
                               {thread.status === 'PENDING' ? (
                                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '20px', gap: '16px' }}>
                                   <div className="glass-panel" style={{ padding: '24px', maxWidth: '400px', textAlign: 'center', backgroundColor: 'hsla(var(--warning), 0.05)', border: '1px solid hsla(var(--warning), 0.25)' }}>
@@ -1581,7 +2134,7 @@ export function DirectorDashboard({
                                     <h4 style={{ fontWeight: 700, marginBottom: '6px' }}>{lang === 'ar' ? 'طلب محادثة معلق' : 'Pending Message Request'}</h4>
                                     <p style={{ fontSize: '0.8rem', color: 'hsl(var(--text-secondary))', marginBottom: '20px' }}>
                                       {lang === 'ar' 
-                                        ? `يرغب الموظف ${thread.english_first_name} في بدء محادثة معك. هل ترغب في قبول الطلب؟`
+                                        ? `يرغب الموظف ${thread.arabic_first_name || thread.english_first_name} في بدء محادثة معك. هل ترغب في قبول الطلب؟`
                                         : `Employee ${thread.english_first_name} wants to message you. Do you want to accept or deny this request?`}
                                     </p>
                                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
@@ -1594,19 +2147,13 @@ export function DirectorDashboard({
                                     </div>
                                   </div>
                                 </div>
-                              ) : thread.status === 'DENIED' ? (
-                                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                  <div style={{ textAlign: 'center', color: 'hsl(var(--danger))', fontStyle: 'italic', fontSize: '0.9rem' }}>
-                                    🚫 {lang === 'ar' ? 'تم رفض طلب المراسلة هذا.' : 'This message request was denied.'}
-                                  </div>
-                                </div>
                               ) : (
                                 <>
                                   {messages.map((msg: any, idx: number) => {
                                     if (msg.isSystem) {
                                       return (
                                         <div key={idx} style={{ textAlign: 'center', fontStyle: 'italic', fontSize: '0.75rem', color: 'hsl(var(--text-muted))', margin: '8px 0' }}>
-                                          {msg.text}
+                                          {getLocalizedSystemMessage(msg.text)}
                                         </div>
                                       );
                                     }
@@ -1631,13 +2178,21 @@ export function DirectorDashboard({
                                           lineHeight: '1.4'
                                         }}>
                                           <div>{msg.text}</div>
-                                          <div style={{ fontSize: '0.65rem', textAlign: isAdminMsg ? 'right' : 'left', color: isAdminMsg ? 'rgba(255,255,255,0.7)' : 'hsl(var(--text-muted))', marginTop: '4px' }}>
-                                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          <div style={{ fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: isAdminMsg ? 'flex-end' : 'flex-start', color: isAdminMsg ? 'rgba(255,255,255,0.7)' : 'hsl(var(--text-muted))', marginTop: '4px', gap: '4px' }}>
+                                            <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                            {isAdminMsg && (
+                                              msg.read ? (
+                                                <span style={{ color: '#60a5fa', fontWeight: 'bold', fontSize: '0.75rem', marginLeft: '2px' }} title="Read">✓✓</span>
+                                              ) : (
+                                                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', marginLeft: '2px' }} title="Sent">✓</span>
+                                              )
+                                            )}
                                           </div>
                                         </div>
                                       </div>
                                     );
                                   })}
+                                  <div ref={messagesEndRef} />
                                 </>
                               )}
                             </div>
@@ -1649,18 +2204,52 @@ export function DirectorDashboard({
                                 style={{ padding: '16px', borderTop: '1px solid hsl(var(--border-color))', display: 'flex', gap: '10px', backgroundColor: 'hsl(var(--bg-secondary))', flexDirection: isRtl ? 'row-reverse' : 'row' }}
                               >
                                 <input
+                                  ref={chatInputRef}
                                   type="text"
                                   className="form-input"
                                   placeholder={lang === 'ar' ? 'اكتب رسالة...' : 'Type a message...'}
                                   value={adminMessageText}
                                   onChange={(e) => setAdminMessageText(e.target.value)}
-                                  disabled={isSendingAdminMessage}
                                   style={{ flex: 1 }}
                                 />
                                 <button type="submit" className="btn-primary" disabled={isSendingAdminMessage || !adminMessageText.trim()} style={{ padding: '10px 20px' }}>
                                   {lang === 'ar' ? 'إرسال' : 'Send'}
                                 </button>
                               </form>
+                            )}
+
+                            {thread.status === 'CLOSED' && (
+                              <div style={{ padding: '16px', borderTop: '1px solid hsl(var(--border-color))', display: 'flex', gap: '12px', backgroundColor: 'hsl(var(--bg-secondary))' }}>
+                                <button
+                                  type="button"
+                                  className="btn-primary"
+                                  onClick={() => handleAdminStartChat(thread.employee_id)}
+                                  style={{ padding: '10px 24px', fontWeight: 600, flex: 1 }}
+                                >
+                                  {lang === 'ar' ? 'إعادة فتح المحادثة' : 'Reopen Chat'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  onClick={() => handleAdminArchiveThread(thread.id)}
+                                  style={{ padding: '10px 24px', fontWeight: 600, flex: 1 }}
+                                >
+                                  {lang === 'ar' ? 'أرشفة المحادثة' : 'Archive Chat'}
+                                </button>
+                              </div>
+                            )}
+
+                            {thread.status === 'ARCHIVED' && (
+                              <div style={{ padding: '16px', borderTop: '1px solid hsl(var(--border-color))', display: 'flex', justifyContent: 'center', backgroundColor: 'hsl(var(--bg-secondary))' }}>
+                                <button
+                                  type="button"
+                                  className="btn-primary"
+                                  onClick={() => handleAdminStartChat(thread.employee_id)}
+                                  style={{ padding: '10px 24px', fontWeight: 600, width: '100%' }}
+                                >
+                                  {lang === 'ar' ? 'إعادة فتح المحادثة' : 'Reopen Chat'}
+                                </button>
+                              </div>
                             )}
                           </div>
                         );
@@ -1710,7 +2299,7 @@ export function DirectorDashboard({
                     </button>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: formMode !== null ? '1fr 2fr' : '1fr', gap: '30px', alignItems: 'start', transition: 'all 0.3s ease' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '30px', transition: 'all 0.3s ease' }}>
                     
                     {/* Form Panel (Create / Edit) */}
                     {formMode !== null && (
@@ -2200,7 +2789,7 @@ export function DirectorDashboard({
                     </div>
                   )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: empFormMode === 'ADD' ? '1fr 2fr' : '1fr', gap: '30px', alignItems: 'start', transition: 'all 0.3s ease' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '30px', transition: 'all 0.3s ease' }}>
 
                     {/* Employee Add Form Panel */}
                     {empFormMode === 'ADD' && (
@@ -2595,7 +3184,7 @@ export function DirectorDashboard({
                     <p style={{ color: 'hsl(var(--text-secondary))' }}>{t.statusDesc}</p>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '30px', alignItems: 'start' }}>
+                  <div className="hospital-status-grid" style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '30px', alignItems: 'start' }}>
                     
                     {/* Status Overview Grid */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2894,7 +3483,7 @@ export function DirectorDashboard({
                     <p style={{ color: 'hsl(var(--text-secondary))' }}>{lang === 'ar' ? 'مراجعة مصادر الإيرادات والمصروفات وتوزيع ميزانيات الأقسام.' : 'Review revenue streams, costs, and cost allocations.'}</p>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '30px' }}>
+                  <div className="financial-grid-container" style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '30px' }}>
                     
                     {/* SVG Chart Panel */}
                     <div className="glass-panel" style={{ padding: '24px' }}>
@@ -3781,6 +4370,92 @@ export function DirectorDashboard({
         </div>
       )}
 
+      {/* Custom Navigation Warning Modal */}
+      {navWarning.show && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.4)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          animation: 'lightboxFadeIn 0.2s ease'
+        }}>
+          <div className="glass-panel" style={{
+            maxWidth: '480px',
+            width: '100%',
+            padding: '28px',
+            borderRadius: '16px',
+            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.15)',
+            border: '1px solid hsl(var(--border-color))',
+            backgroundColor: 'hsl(var(--bg-secondary))',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px'
+          }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              backgroundColor: 'hsla(var(--danger), 0.1)',
+              color: 'hsl(var(--danger))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.8rem',
+              margin: '0 auto'
+            }}>
+              ⚠️
+            </div>
+            <div>
+              <h4 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '8px', color: 'hsl(var(--text-primary))' }}>
+                {lang === 'ar' ? 'تنبيه: فقدان البيانات' : 'Warning: Unsaved Changes'}
+              </h4>
+              <p style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))', lineHeight: '1.5' }}>
+                {navWarning.message}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '4px' }}>
+              <button
+                className="nav-warning-cancel-btn"
+                onClick={() => setNavWarning(prev => ({ ...prev, show: false }))}
+              >
+                {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                className="nav-warning-proceed-btn"
+                onClick={navWarning.onConfirm}
+              >
+                {lang === 'ar' ? 'استمرار' : 'Proceed'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Sidebar Backdrop Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          onClick={() => setIsMobileMenuOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.4)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 999
+          }}
+        />
+      )}
+
       {/* Embedded CSS style tag for animations */}
       <style>{`
         @keyframes lightboxFadeIn {
@@ -3829,6 +4504,50 @@ export function DirectorDashboard({
         .badge {
           display: inline-block;
           font-size: 0.8rem;
+        }
+        .nav-warning-cancel-btn {
+          padding: 10px 24px;
+          font-weight: 600;
+          flex: 1;
+          background-color: hsl(var(--success));
+          border: 1px solid hsl(var(--success));
+          color: #ffffff;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: var(--transition-smooth);
+          box-shadow: 0 4px 12px hsla(var(--success), 0.2);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          text-decoration: none;
+        }
+        .nav-warning-cancel-btn:hover {
+          background-color: hsl(var(--success) / 0.85) !important;
+          border-color: hsl(var(--success) / 0.85) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 6px 16px hsla(var(--success), 0.35);
+        }
+        .nav-warning-proceed-btn {
+          padding: 10px 24px;
+          font-weight: 600;
+          flex: 1;
+          background-color: hsla(var(--danger), 0.08);
+          border: 1px solid hsl(var(--danger));
+          color: hsl(var(--danger));
+          border-radius: 8px;
+          cursor: pointer;
+          transition: var(--transition-smooth);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          text-decoration: none;
+        }
+        .nav-warning-proceed-btn:hover {
+          background-color: hsl(var(--danger)) !important;
+          color: #ffffff !important;
+          border-color: hsl(var(--danger)) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 6px 16px hsla(var(--danger), 0.35);
         }
       `}</style>
 

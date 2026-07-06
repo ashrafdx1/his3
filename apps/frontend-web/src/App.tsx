@@ -165,6 +165,7 @@ export default function App() {
               isHRManager: auth.user?.isHRManager,
               isFirstLogin: auth.user?.isFirstLogin,
             }}
+            onProfileUpdate={handleProfileUpdate}
             onLogout={handleLogout}
             theme={theme}
             toggleTheme={toggleTheme}
