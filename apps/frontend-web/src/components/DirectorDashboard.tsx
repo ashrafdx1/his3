@@ -1868,7 +1868,7 @@ export function DirectorDashboard({
             <>
               {/* SECTION: MESSAGES */}
               {activeSection === 'messages' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: 'calc(100vh - 180px)', minHeight: 0 }}>
+                <div className="messaging-section-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: 'calc(100vh - 180px)', minHeight: 0 }}>
                   <div>
                     <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '6px' }}>
                       {lang === 'ar' ? 'رسائل الموظفين' : 'Employee Messages'}
