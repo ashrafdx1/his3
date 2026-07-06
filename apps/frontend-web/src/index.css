@@ -670,13 +670,19 @@ div[style*="overflowX: auto"], div[style*="overflow-x: auto"] {
     border-right: none !important;
     border-left: none !important;
     border-bottom: 1px solid hsl(var(--border-color)) !important;
-    height: 250px !important;
+    height: auto !important;
+    overflow: visible !important;
     flex-shrink: 0 !important;
+  }
+
+  .messaging-grid-container > div:first-child > div:last-child {
+    height: auto !important;
+    overflow: visible !important;
   }
   
   .messaging-grid-container > div:last-child {
-    height: 400px !important;
-    flex: 1 !important;
+    height: 550px !important;
+    flex-shrink: 0 !important;
   }
 }
 
