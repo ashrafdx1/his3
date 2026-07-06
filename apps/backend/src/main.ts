@@ -44,7 +44,11 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: true, // In production, replace with specific domains
+    origin: [
+      'https://his7-1.onrender.com',
+      'http://localhost:5173',
+      'http://localhost:3000',
+    ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
