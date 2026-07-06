@@ -690,6 +690,14 @@ div[style*="overflowX: auto"], div[style*="overflow-x: auto"] {
   .login-glass-panel {
     padding: 24px 16px !important;
   }
+  .login-controls-header {
+    top: 14px !important;
+    left: 14px !important;
+    right: 14px !important;
+  }
+  .login-brand-header {
+    padding-top: 56px !important;
+  }
 }
 
 

@@ -121,11 +121,11 @@ export function LoginPage({
         overflow: 'hidden'
       }}>
         {/* Action Controls Header */}
-        <div style={{
+        <div className="login-controls-header" style={{
           position: 'absolute',
           top: '20px',
-          left: '40px',
-          right: '40px',
+          left: '24px',
+          right: '24px',
           display: 'flex',
           flexDirection: isRtl ? 'row-reverse' : 'row',
           justifyContent: 'space-between',
@@ -240,8 +240,8 @@ export function LoginPage({
         }} />
 
         {/* Brand Header */}
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{
+        <div className="login-brand-header" style={{ textAlign: 'center', marginBottom: '32px', paddingTop: '36px' }}>
+          <div className="login-logo-wrapper" style={{
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -250,7 +250,7 @@ export function LoginPage({
             borderRadius: '12px',
             background: 'linear-gradient(135deg, hsl(var(--accent-blue) / 0.08), hsl(var(--accent-teal) / 0.08))',
             border: '1px solid hsl(var(--accent-blue) / 0.2)',
-            marginBottom: '16px',
+            marginBottom: '28px',
             boxShadow: '0 4px 12px hsl(var(--accent-blue) / 0.08)'
           }}>
             {/* Hospital Cross Shield SVG */}
