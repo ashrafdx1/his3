@@ -2251,51 +2251,53 @@ export function EmployeeDashboard({
                   )}
 
                   {/* Employees Table Grid */}
-                  <div className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-                    {isLoadingEmps ? (
-                      <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-                        <div style={{ width: '30px', height: '30px', border: '3px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                      </div>
-                    ) : employees.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '40px', color: 'hsl(var(--text-muted))' }}>{lang === 'ar' ? 'لا يوجد موظفون مضافون' : 'No employees found.'}</div>
-                    ) : (
-                      <div className="table-scroll-container">
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: isRtl ? 'right' : 'left' }}>
-                          <thead>
-                            <tr style={{ background: 'hsla(var(--bg-tertiary), 0.5)', borderBottom: '1px solid hsl(var(--border-color))' }}>
-                              {[lang === 'ar' ? 'الاسم' : 'Name', lang === 'ar' ? 'البريد الإلكتروني' : 'Email Address', lang === 'ar' ? 'الوظيفة' : 'Job Type', lang === 'ar' ? 'اللقب' : 'Title', lang === 'ar' ? 'الراتب' : 'Salary', lang === 'ar' ? 'الإجراءات' : 'Actions'].map((h, i) => (
-                                <th key={i} style={{ padding: '14px 16px', fontSize: '0.78rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {employees.map((emp: any) => (
-                              <tr key={emp.employee_id} style={{ borderBottom: '1px solid hsla(var(--border-color), 0.5)' }}>
-                                <td style={{ padding: '14px 16px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
-                                    <div onClick={() => { const u = getProfilePicUrl(emp.employee_picture_url); if (u) setEmpLightbox(u); }} style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'hsla(var(--accent-blue), 0.1)', border: '1px solid hsla(var(--accent-blue), 0.2)', overflow: 'hidden', cursor: emp.employee_picture_url ? 'pointer' : 'default', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                      {emp.employee_picture_url ? <img src={getProfilePicUrl(emp.employee_picture_url) || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '👤'}
-                                    </div>
-                                    <span style={{ fontWeight: 600, color: 'hsl(var(--accent-blue))' }}>{emp.english_first_name} {emp.english_last_name}</span>
-                                  </div>
-                                </td>
-                                <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: 'hsl(var(--accent-blue))' }}>{emp.email}</td>
-                                <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: 'hsl(var(--accent-blue))' }}>{emp.employment_type}</td>
-                                <td style={{ padding: '14px 16px', fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--accent-blue))' }}>{emp.title || (lang === 'ar' ? 'لا يوجد' : 'none')}</td>
-                                <td style={{ padding: '14px 16px', fontSize: '0.85rem', fontFamily: 'monospace', fontWeight: 600, color: 'hsl(var(--accent-blue))' }}>{emp.salary != null ? Number(emp.salary).toLocaleString('en-US') : '—'}</td>
-                                <td style={{ padding: '14px 16px' }}>
-                                  <div style={{ display: 'flex', gap: '6px', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
-                                    <button onClick={() => openEdit(emp)} className="btn-secondary animate-hover" style={{ padding: '5px 12px', fontSize: '0.78rem', fontWeight: 600, color: 'hsl(var(--accent-blue))', borderColor: 'hsla(var(--accent-blue), 0.3)', cursor: 'pointer' }}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button>
-                                    <button onClick={() => alert(lang === 'ar' ? 'هذه الصلاحية للمدير فقط' : 'This functionality is hospital director only')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem', fontWeight: 600, color: 'hsl(var(--danger))', borderColor: 'hsla(var(--danger), 0.3)' }}>{lang === 'ar' ? 'حذف' : 'Delete'}</button>
-                                  </div>
-                                </td>
+                  {empFormMode !== 'EDIT' && (
+                    <div className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+                      {isLoadingEmps ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                          <div style={{ width: '30px', height: '30px', border: '3px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                        </div>
+                      ) : employees.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'hsl(var(--text-muted))' }}>{lang === 'ar' ? 'لا يوجد موظفون مضافون' : 'No employees found.'}</div>
+                      ) : (
+                        <div className="table-scroll-container">
+                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: isRtl ? 'right' : 'left' }}>
+                            <thead>
+                              <tr style={{ background: 'hsla(var(--bg-tertiary), 0.5)', borderBottom: '1px solid hsl(var(--border-color))' }}>
+                                {[lang === 'ar' ? 'الاسم' : 'Name', lang === 'ar' ? 'البريد الإلكتروني' : 'Email Address', lang === 'ar' ? 'الوظيفة' : 'Job Type', lang === 'ar' ? 'اللقب' : 'Title', lang === 'ar' ? 'الراتب' : 'Salary', lang === 'ar' ? 'الإجراءات' : 'Actions'].map((h, i) => (
+                                  <th key={i} style={{ padding: '14px 16px', fontSize: '0.78rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
+                                ))}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
+                            </thead>
+                            <tbody>
+                              {employees.map((emp: any) => (
+                                <tr key={emp.employee_id} style={{ borderBottom: '1px solid hsla(var(--border-color), 0.5)' }}>
+                                  <td style={{ padding: '14px 16px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
+                                      <div onClick={() => { const u = getProfilePicUrl(emp.employee_picture_url); if (u) setEmpLightbox(u); }} style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'hsla(var(--accent-blue), 0.1)', border: '1px solid hsla(var(--accent-blue), 0.2)', overflow: 'hidden', cursor: emp.employee_picture_url ? 'pointer' : 'default', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {emp.employee_picture_url ? <img src={getProfilePicUrl(emp.employee_picture_url) || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '👤'}
+                                      </div>
+                                      <span style={{ fontWeight: 600, color: 'hsl(var(--accent-blue))' }}>{emp.english_first_name} {emp.english_last_name}</span>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: 'hsl(var(--accent-blue))' }}>{emp.email}</td>
+                                  <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: 'hsl(var(--accent-blue))' }}>{emp.employment_type}</td>
+                                  <td style={{ padding: '14px 16px', fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--accent-blue))' }}>{emp.title || (lang === 'ar' ? 'لا يوجد' : 'none')}</td>
+                                  <td style={{ padding: '14px 16px', fontSize: '0.85rem', fontFamily: 'monospace', fontWeight: 600, color: 'hsl(var(--accent-blue))' }}>{emp.salary != null ? Number(emp.salary).toLocaleString('en-US') : '—'}</td>
+                                  <td style={{ padding: '14px 16px' }}>
+                                    <div style={{ display: 'flex', gap: '6px', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
+                                      <button onClick={() => openEdit(emp)} className="btn-secondary animate-hover" style={{ padding: '5px 12px', fontSize: '0.78rem', fontWeight: 600, color: 'hsl(var(--accent-blue))', borderColor: 'hsla(var(--accent-blue), 0.3)', cursor: 'pointer' }}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button>
+                                      <button onClick={() => alert(lang === 'ar' ? 'هذه الصلاحية للمدير فقط' : 'This functionality is hospital director only')} className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem', fontWeight: 600, color: 'hsl(var(--danger))', borderColor: 'hsla(var(--danger), 0.3)' }}>{lang === 'ar' ? 'حذف' : 'Delete'}</button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
