@@ -158,6 +158,19 @@ export function EmployeeDashboard({
   const [empForm, setEmpForm] = useState<Record<string, any>>({});
   const [isUploadingEmpPhoto, setIsUploadingEmpPhoto] = useState(false);
 
+  // HR Manager: Departments Management States
+  const [dbDepartments, setDbDepartments] = useState<any[]>([]);
+  const [isLoadingDepts, setIsLoadingDepts] = useState(false);
+
+  // HR Manager: Departments Modal States
+  const [activeDeptId, setActiveDeptId] = useState<number | null>(null);
+  const [activeDeptName, setActiveDeptName] = useState('');
+  const [deptModalMode, setDeptModalMode] = useState<'ADD_EMPLOYEES' | 'VIEW_EMPLOYEES' | null>(null);
+  const [deptModalEmployees, setDeptModalEmployees] = useState<any[]>([]);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
+  const [isLoadingDeptModal, setIsLoadingDeptModal] = useState(false);
+
+
   // Unsaved changes warning state
   const [navWarning, setNavWarning] = useState<{
     show: boolean;
@@ -296,7 +309,72 @@ export function EmployeeDashboard({
     finally { setIsLoadingEmps(false); }
   };
 
-  useEffect(() => { if (user.isHRManager) fetchEmployees(); }, [user.isHRManager]);
+  const fetchDepartments = async () => {
+    setIsLoadingDepts(true);
+    try {
+      const response = await apiClient.get('/departments');
+      setDbDepartments(response.data);
+    } catch (error) {
+      triggerToast(lang === 'ar' ? 'فشل تحميل الأقسام من الخادم.' : 'Failed to fetch departments from server.');
+    } finally {
+      setIsLoadingDepts(false);
+    }
+  };
+
+  const openDeptModal = async (deptId: number, deptName: string, mode: 'ADD_EMPLOYEES' | 'VIEW_EMPLOYEES') => {
+    setActiveDeptId(deptId);
+    setActiveDeptName(deptName);
+    setDeptModalMode(mode);
+    setDeptModalEmployees([]);
+    setSelectedEmployeeIds([]);
+    setIsLoadingDeptModal(true);
+    try {
+      if (mode === 'ADD_EMPLOYEES') {
+        const res = await apiClient.get('/departments/unassigned-employees');
+        setDeptModalEmployees(res.data);
+      } else {
+        const res = await apiClient.get(`/departments/${deptId}/employees`);
+        setDeptModalEmployees(res.data);
+      }
+    } catch (err) {
+      triggerToast(lang === 'ar' ? 'فشل تحميل الموظفين.' : 'Failed to load employees.');
+    } finally {
+      setIsLoadingDeptModal(false);
+    }
+  };
+
+  const handleDeptModalCommit = async () => {
+    if (!activeDeptId || deptModalMode === 'VIEW_EMPLOYEES') return;
+    if (selectedEmployeeIds.length === 0) {
+      triggerToast(lang === 'ar' ? 'يرجى تحديد موظف واحد على الأقل.' : 'Please select at least one employee.');
+      return;
+    }
+    setIsLoadingDeptModal(true);
+    try {
+      if (deptModalMode === 'ADD_EMPLOYEES') {
+        await apiClient.post(`/departments/${activeDeptId}/assign-employees`, {
+          employeeIds: selectedEmployeeIds
+        });
+        triggerToast(lang === 'ar' ? 'تم إضافة الموظفين إلى القسم بنجاح.' : 'Employees successfully assigned to the department.');
+      }
+      setDeptModalMode(null);
+      await fetchDepartments();
+    } catch (err) {
+      triggerToast(lang === 'ar' ? 'فشل تنفيذ الإجراء.' : 'Failed to commit changes.');
+    } finally {
+      setIsLoadingDeptModal(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user.isHRManager) {
+      if (activeSection === 'employees-management') {
+        fetchEmployees();
+      } else if (activeSection === 'departments-management') {
+        fetchDepartments();
+      }
+    }
+  }, [user.isHRManager, activeSection]);
 
   // First login submit
   const handleFirstLoginSubmit = async (e: React.FormEvent) => {
@@ -525,7 +603,10 @@ export function EmployeeDashboard({
   const handleLogout = () => { setShowFarewell(true); setTimeout(onLogout, 2800); };
 
   const navItems = [
-    ...(user.isHRManager ? [{ id: 'employees-management', label: lang === 'ar' ? '👥 إدارة الموظفين' : '👥 Employees Management', desc: lang === 'ar' ? 'إضافة وتحرير الموظفين' : 'Add and edit employees' }] : []),
+    ...(user.isHRManager ? [
+      { id: 'employees-management', label: lang === 'ar' ? '👥 إدارة الموظفين' : '👥 Employees Management', desc: lang === 'ar' ? 'إضافة وتحرير الموظفين' : 'Add and edit employees' },
+      { id: 'departments-management', label: lang === 'ar' ? '🏢 إدارة الأقسام' : '🏢 Departments Management', desc: lang === 'ar' ? 'عرض الأقسام والموظفين' : 'View departments and employees' }
+    ] : []),
     { id: 'overview', label: lang === 'ar' ? '🏥 نظرة عامة' : '🏥 Overview', desc: lang === 'ar' ? 'لوحة التحكم' : 'Your dashboard' },
     { id: 'salary', label: lang === 'ar' ? '💰 الراتب' : '💰 Salary', desc: lang === 'ar' ? 'راتبك الحالي' : 'Your current salary' },
     { id: 'schedule', label: lang === 'ar' ? '📅 الجدول' : '📅 Schedule', desc: lang === 'ar' ? 'جدول العمل' : 'Work schedule' },
@@ -862,6 +943,7 @@ export function EmployeeDashboard({
               {showSettings 
                 ? (lang === 'ar' ? 'إعدادات الحساب' : 'Account Settings')
                 : activeSection === 'employees-management' ? (lang === 'ar' ? 'إدارة الموظفين' : 'Employees Management')
+                : activeSection === 'departments-management' ? (lang === 'ar' ? 'إدارة الأقسام' : 'Departments Management')
                 : activeSection === 'overview' ? (lang === 'ar' ? 'نظرة عامة' : 'Overview')
                 : activeSection === 'salary' ? (lang === 'ar' ? 'الراتب' : 'Salary')
                 : activeSection === 'schedule' ? (lang === 'ar' ? 'الجدول' : 'Schedule')
@@ -2098,6 +2180,151 @@ export function EmployeeDashboard({
                   </div>
                 </div>
               )}
+
+              {/* HR Manager: Departments Management Section */}
+              {activeSection === 'departments-management' && user.isHRManager && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+                  <div>
+                    <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '6px' }}>
+                      {lang === 'ar' ? 'إدارة الأقسام' : 'Departments Management'}
+                    </h2>
+                    <p style={{ color: 'hsl(var(--text-secondary))' }}>
+                      {lang === 'ar' 
+                        ? 'عرض الأقسام الطبية وتعيين الموظفين.' 
+                        : 'View hospital departments and manage personnel assignment.'}
+                    </p>
+                  </div>
+
+                  {/* Department Registry Table */}
+                  <div className="glass-panel" style={{ padding: '24px' }}>
+                    <h3 style={{ fontSize: '1.2rem', marginBottom: '16px', fontWeight: 700 }}>
+                      {lang === 'ar' ? 'سجل الأقسام المعتمدة' : 'Department Registry'}
+                    </h3>
+                    
+                    {isLoadingDepts ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px' }}>
+                        <div className="spinner" style={{ width: '32px', height: '32px', border: '3px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      </div>
+                    ) : dbDepartments.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px', color: 'hsl(var(--text-muted))' }}>
+                        {lang === 'ar' ? 'لا توجد أقسام مسجلة حالياً.' : 'No departments registered yet.'}
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: isRtl ? 'right' : 'left' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid hsl(var(--border-color))' }}>
+                              <th style={{ padding: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.85rem', width: '60px' }}>#</th>
+                              <th style={{ padding: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.85rem' }}>{lang === 'ar' ? 'الاسم' : 'Name'}</th>
+                              <th style={{ padding: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.85rem' }}>{lang === 'ar' ? 'الوصف' : 'Description'}</th>
+                              <th style={{ padding: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.85rem' }}>{lang === 'ar' ? 'المدير' : 'Manager'}</th>
+                              <th style={{ padding: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.85rem' }}>{lang === 'ar' ? 'آخر تعديل' : 'Last Edited'}</th>
+                              <th style={{ padding: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.85rem', width: '100px' }}>{lang === 'ar' ? 'الموظفون' : 'Employees'}</th>
+                              <th style={{ padding: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.85rem', width: '100px' }}>{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {dbDepartments.map((dept, index) => (
+                              <tr key={dept.id} style={{ borderBottom: '1px solid hsla(var(--border-color), 0.5)' }}>
+                                <td style={{ padding: '12px', fontSize: '0.9rem', color: 'hsl(var(--text-muted))' }}>{index + 1}</td>
+                                <td style={{ padding: '12px', fontSize: '0.9rem', fontWeight: 600 }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span>{dept.name}</span>
+                                    {dept['dept-arabic-name'] && (
+                                      <span style={{ fontSize: '0.75rem', color: 'hsl(var(--accent-blue))', fontWeight: 500 }}>
+                                        {dept['dept-arabic-name']}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '12px', fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={dept.description}>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span>{dept.description || '-'}</span>
+                                    {dept['dept-arabic-description'] && (
+                                      <span style={{ fontSize: '0.75rem', color: 'hsl(var(--accent-blue) / 0.7)', fontStyle: 'italic' }}>
+                                        {dept['dept-arabic-description']}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '12px', fontSize: '0.85rem' }}>
+                                  {dept.department_management === 'yes' ? (
+                                    <span style={{ fontWeight: 600, color: 'hsl(var(--accent-blue))' }}>
+                                      {dept.managerName ? `${dept.managerName} (ID: ${dept['department-mgr-id']})` : `Assigned (ID: ${dept['department-mgr-id']})`}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'hsl(var(--accent-blue))', fontStyle: 'italic' }}>
+                                      {lang === 'ar' ? 'غير معين' : 'Unassigned'}
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '12px', fontSize: '0.85rem', color: 'hsl(var(--text-muted))' }}>
+                                  {dept.last_edited ? new Date(dept.last_edited).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US') : (lang === 'ar' ? 'لم يعدل' : 'Never')}
+                                </td>
+                                <td style={{ padding: '12px', fontSize: '0.9rem', textAlign: 'center' }}>
+                                  <span className="badge" style={{ backgroundColor: 'hsl(var(--bg-tertiary))', color: 'hsl(var(--text-secondary))', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>
+                                    {dept.employeeCount}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button
+                                      onClick={() => openDeptModal(dept.departmentId, dept.name, 'ADD_EMPLOYEES')}
+                                      style={{ background: 'none', border: 'none', color: 'hsl(var(--accent-blue))', cursor: 'pointer', padding: '4px' }}
+                                      title={lang === 'ar' ? 'إضافة موظفين' : 'Add Employees'}
+                                    >
+                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                      </svg>
+                                    </button>
+
+                                    <button
+                                      onClick={() => openDeptModal(dept.departmentId, dept.name, 'VIEW_EMPLOYEES')}
+                                      style={{ background: 'none', border: 'none', color: 'hsl(var(--accent-blue))', cursor: 'pointer', padding: '4px' }}
+                                      title={lang === 'ar' ? 'عرض الموظفين والمدير' : 'View Employees'}
+                                    >
+                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Department Requests Section (Empty for now) */}
+                  <div className="glass-panel" style={{ padding: '24px' }}>
+                    <h3 style={{ fontSize: '1.2rem', marginBottom: '16px', fontWeight: 700 }}>
+                      {lang === 'ar' ? 'طلبات الأقسام' : 'Department Requests'}
+                    </h3>
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '30px 20px',
+                      color: 'hsl(var(--text-muted))',
+                      background: 'hsla(var(--bg-tertiary), 0.3)',
+                      borderRadius: '8px',
+                      border: '1px dashed hsla(var(--border-color), 0.6)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '10px'
+                    }}>
+                      <span style={{ fontSize: '1.8rem' }}>🏢</span>
+                      <span style={{ fontSize: '0.85rem' }}>
+                        {lang === 'ar' ? 'لا توجد طلبات أقسام معلقة حالياً.' : 'No pending department requests.'}
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+              )}
             </>
           )}
 
@@ -2119,6 +2346,159 @@ export function EmployeeDashboard({
             zIndex: 999
           }}
         />
+      )}
+
+      {/* HR Manager: Department Staff Management Modal */}
+      {deptModalMode !== null && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.7)',
+            backdropFilter: 'blur(12px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            animation: 'lightboxFadeIn 0.2s ease-out forwards'
+          }}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '100%',
+              maxWidth: '650px',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: '28px',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)',
+              position: 'relative'
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid hsl(var(--border-color))', paddingBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>
+                  {deptModalMode === 'ADD_EMPLOYEES' && (lang === 'ar' ? `إضافة موظفين إلى قسم ${activeDeptName}` : `Add Employees to ${activeDeptName}`)}
+                  {deptModalMode === 'VIEW_EMPLOYEES' && (lang === 'ar' ? `موظفو قسم ${activeDeptName}` : `Employees in ${activeDeptName}`)}
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: 'hsl(var(--text-secondary))', marginTop: '4px' }}>
+                  {deptModalMode === 'ADD_EMPLOYEES' && (lang === 'ar' ? 'اختر الموظفين غير المعينين لإضافتهم إلى هذا القسم' : 'Select unassigned employees to assign to this department')}
+                  {deptModalMode === 'VIEW_EMPLOYEES' && (lang === 'ar' ? 'عرض موظفي القسم الحاليين' : 'View current department employees')}
+                </p>
+              </div>
+              <button
+                onClick={() => setDeptModalMode(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'hsl(var(--text-muted))',
+                  fontSize: '1.2rem',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content/List */}
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px', paddingRight: '4px' }}>
+              {isLoadingDeptModal ? (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px' }}>
+                  <div className="spinner" style={{ width: '28px', height: '28px', border: '3px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                </div>
+              ) : deptModalEmployees.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'hsl(var(--text-muted))', fontStyle: 'italic' }}>
+                  {lang === 'ar' ? 'لا يوجد موظفون يتطابقون مع هذا الإجراء.' : 'No employees matching this operation.'}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {deptModalEmployees.map((emp) => {
+                    const isSelected = selectedEmployeeIds.includes(emp.employee_id);
+                    const isManager = emp.title === 'Manager';
+                    return (
+                      <div
+                        key={emp.employee_id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '12px 16px',
+                          borderRadius: '8px',
+                          backgroundColor: isSelected ? 'hsla(var(--accent-blue), 0.08)' : 'hsla(var(--bg-tertiary), 0.4)',
+                          border: isSelected ? '1px solid hsla(var(--accent-blue), 0.3)' : '1px solid hsla(var(--border-color), 0.5)',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          {deptModalMode !== 'VIEW_EMPLOYEES' && (
+                            <input
+                              type="checkbox"
+                              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedEmployeeIds([...selectedEmployeeIds, emp.employee_id]);
+                                } else {
+                                  setSelectedEmployeeIds(selectedEmployeeIds.filter(id => id !== emp.employee_id));
+                                }
+                              }}
+                            />
+                          )}
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'hsla(var(--accent-blue), 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid hsla(var(--accent-blue), 0.2)', fontSize: '0.8rem', overflow: 'hidden' }}>
+                            {emp.employee_picture_url ? (
+                              <img src={getProfilePicUrl(emp.employee_picture_url) || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : '👤'}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                              {`${emp.english_first_name} ${emp.english_last_name}`}
+                              {isManager && (
+                                <span className="badge" style={{ backgroundColor: 'hsla(var(--accent-teal), 0.15)', color: 'hsl(var(--accent-teal))', marginLeft: '8px', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
+                                  {lang === 'ar' ? 'مدير' : 'Manager'}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>
+                              {emp.email} • {emp.employment_type === 'doctor' ? (lang === 'ar' ? 'طبيب' : 'Doctor') : (lang === 'ar' ? 'موظف' : 'Staff')}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer buttons */}
+            {deptModalMode !== 'VIEW_EMPLOYEES' && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid hsl(var(--border-color))', paddingTop: '16px' }}>
+                <button
+                  onClick={() => setDeptModalMode(null)}
+                  className="btn-secondary"
+                  style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                  disabled={isLoadingDeptModal}
+                >
+                  {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  onClick={handleDeptModalCommit}
+                  className="btn-primary"
+                  style={{ padding: '8px 20px', fontSize: '0.85rem' }}
+                  disabled={isLoadingDeptModal}
+                >
+                  {isLoadingDeptModal ? (lang === 'ar' ? 'جاري الحفظ...' : 'Saving...') : (lang === 'ar' ? 'تأكيد' : 'Confirm')}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Unsaved Changes Custom Modal */}
