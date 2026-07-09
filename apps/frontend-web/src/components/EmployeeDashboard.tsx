@@ -1593,8 +1593,8 @@ export function EmployeeDashboard({
                         {lang === 'ar' ? 'طلب موظفين جديد:' : 'New Staff Request:'}
                       </span>{' '}
                       {lang === 'ar' 
-                        ? `قسم "${dept['dept-arabic-name'] || dept.name}" يطلب ${dept.requestedCount} موظفين.` 
-                        : `Department "${dept.name}" wants ${dept.requestedCount} employees.`}
+                        ? `قسم "${dept['dept-arabic-name'] || dept.name}" يطلب ${dept.requestedCount === 1 ? 'موظفاً واحداً' : `${dept.requestedCount} موظفين`}.` 
+                        : `Department "${dept.name}" wants ${dept.requestedCount} ${dept.requestedCount === 1 ? 'employee' : 'employees'}.`}
                       {dept.requestedReason && (
                         <span style={{ fontSize: '0.82rem', color: 'hsl(var(--text-secondary))', display: 'block', marginTop: '2px' }}>
                           {lang === 'ar' ? `السبب: ${dept.requestedReason}` : `Reason: ${dept.requestedReason}`}
@@ -2455,7 +2455,7 @@ export function EmployeeDashboard({
                               <tr key={dept.id} style={{ borderBottom: '1px solid hsla(var(--border-color), 0.5)' }}>
                                 <td style={{ padding: '12px', fontWeight: 600 }}>{dept.name}</td>
                                 <td style={{ padding: '12px', color: 'hsl(var(--danger))', fontWeight: 700 }}>
-                                  {dept.requestedCount} {lang === 'ar' ? 'موظفين' : 'employees'}
+                                  {dept.requestedCount} {lang === 'ar' ? (dept.requestedCount === 1 ? 'موظف' : 'موظفين') : (dept.requestedCount === 1 ? 'employee' : 'employees')}
                                 </td>
                                 <td style={{ padding: '12px', color: 'hsl(var(--text-secondary))' }}>
                                   {dept.requestedReason || '—'}
@@ -2532,13 +2532,16 @@ export function EmployeeDashboard({
                               {lang === 'ar' ? 'طلب موظفين نشط' : 'Active Staff Request'}
                             </div>
                             <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'hsl(var(--text-primary))' }}>
-                              {dbDepartments.find(d => d.departmentId === empProfile?.department_id)?.requestedCount ? (
-                                <span style={{ color: 'hsl(var(--warning))' }}>
-                                  {dbDepartments.find(d => d.departmentId === empProfile?.department_id)?.requestedCount} {lang === 'ar' ? 'موظف مطلوب' : 'employees requested'}
-                                </span>
-                              ) : (
-                                <span style={{ color: 'hsl(var(--success))' }}>{lang === 'ar' ? 'لا يوجد طلبات' : 'No active requests'}</span>
-                              )}
+                              {(() => {
+                                const reqCount = dbDepartments.find(d => d.departmentId === empProfile?.department_id)?.requestedCount;
+                                return reqCount ? (
+                                  <span style={{ color: 'hsl(var(--warning))' }}>
+                                    {reqCount} {lang === 'ar' ? (reqCount === 1 ? 'موظف مطلوب' : 'موظفين مطلوبين') : (reqCount === 1 ? 'employee requested' : 'employees requested')}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'hsl(var(--success))' }}>{lang === 'ar' ? 'لا يوجد طلبات' : 'No active requests'}</span>
+                                );
+                              })()}
                             </div>
                           </div>
                         </div>
