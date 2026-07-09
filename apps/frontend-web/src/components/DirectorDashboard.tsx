@@ -46,6 +46,7 @@ export function DirectorDashboard({
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [budgetData, setBudgetData] = useState<any[]>([]);
+  const [totalPenalty, setTotalPenalty] = useState<{ totalPenalty: number; monthYear: string } | null>(null);
   const [budgetFormMode, setBudgetFormMode] = useState<'ADD' | 'EDIT' | null>(null);
   const [editingBudget, setEditingBudget] = useState<any | null>(null);
   const [budgetNameInput, setBudgetNameInput] = useState('');
@@ -355,6 +356,11 @@ export function DirectorDashboard({
     try {
       const response = await apiClient.get('/budget');
       setBudgetData(response.data);
+      // Fetch total shift penalties for this month
+      try {
+        const penRes = await apiClient.get('/schedule/penalty/total');
+        setTotalPenalty(penRes.data);
+      } catch { /* silent */ }
     } catch (err: any) {
       console.error('Failed to fetch budget:', err);
     }
@@ -3732,6 +3738,22 @@ export function DirectorDashboard({
                             <tr>
                               <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'hsl(var(--text-muted))' }}>
                                 {lang === 'ar' ? 'لا توجد بيانات ميزانية متوفرة' : 'No budget data available'}
+                              </td>
+                            </tr>
+                          )}
+                          {/* Penalty deduction summary row */}
+                          {totalPenalty && totalPenalty.totalPenalty > 0 && (
+                            <tr style={{ borderBottom: '1px solid hsla(var(--danger), 0.3)', background: 'hsla(var(--danger), 0.04)' }}>
+                              <td style={{ padding: '14px 12px', fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--danger))' }}>—</td>
+                              <td style={{ padding: '14px 12px', fontSize: '0.88rem', fontWeight: 600, color: 'hsl(var(--danger))' }}>
+                                ⚠️ {lang === 'ar' ? 'خصومات الغياب' : 'Shift Absence Deductions'}
+                                <span style={{ fontSize: '0.72rem', marginLeft: '6px', color: 'hsl(var(--text-muted))' }}>({totalPenalty.monthYear})</span>
+                              </td>
+                              <td style={{ padding: '14px 12px', fontSize: '0.88rem', fontWeight: 700, color: 'hsl(var(--danger))' }}>
+                                -{totalPenalty.totalPenalty.toLocaleString('en-US')}
+                              </td>
+                              <td colSpan={3} style={{ padding: '14px 12px', fontSize: '0.82rem', color: 'hsl(var(--text-muted))' }}>
+                                {lang === 'ar' ? 'مخصوم من ميزانية الرواتب' : 'Deducted from salaries budget'}
                               </td>
                             </tr>
                           )}

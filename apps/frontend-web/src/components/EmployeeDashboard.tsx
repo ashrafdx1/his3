@@ -178,6 +178,32 @@ export function EmployeeDashboard({
   const [requestReason, setRequestReason] = useState('');
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
 
+  // Department Schedule states
+  const [scheduleViewMonth, setScheduleViewMonth] = useState<'this' | 'next'>('this');
+  const [scheduleData, setScheduleData] = useState<any[]>([]);
+  const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<any>(null); // {id, day, slot, employeeId}
+  const [slotPopupEmpId, setSlotPopupEmpId] = useState<number | null>(null);
+  const [pendingSlotEdits, setPendingSlotEdits] = useState<Array<{id: number; employeeId: number | null}>>([]);
+
+  // Department Attendance states
+  const [attendanceData, setAttendanceData] = useState<any>(null);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
+  const [absenceRecords, setAbsenceRecords] = useState<any[]>([]);
+  const [isMarkingAbsent, setIsMarkingAbsent] = useState<number | null>(null);
+
+  // My Schedule (employee view)
+  const [myScheduleData, setMyScheduleData] = useState<any[]>([]);
+  const [isLoadingMySchedule, setIsLoadingMySchedule] = useState(false);
+  const [myScheduleViewMonth, setMyScheduleViewMonth] = useState<'this' | 'next'>('this');
+
+  // Penalty (employee salary)
+  const [myPenalty, setMyPenalty] = useState<{ absenceCount: number; penalty: number; monthYear: string } | null>(null);
+
+
 
   // Unsaved changes warning state
   const [navWarning, setNavWarning] = useState<{
@@ -427,13 +453,131 @@ export function EmployeeDashboard({
         fetchEmployees();
       }
     } else if (empProfile && empProfile.title === 'Manager') {
-      // Fetch departments for standard managers too, so they can resolve their department name
       fetchDepartments();
     }
     if (activeSection === 'my-department') {
       fetchMyDeptDetails();
     }
+    if (activeSection === 'department-schedule' && empProfile?.department_id) {
+      fetchSchedule(empProfile.department_id, scheduleViewMonth);
+      fetchMyDeptDetails(); // ensure employee list is available
+    }
+    if (activeSection === 'department-attendance' && empProfile?.department_id) {
+      fetchAttendance(empProfile.department_id);
+      fetchAbsenceRecords(empProfile.department_id);
+    }
+    if (activeSection === 'schedule' && empProfile?.id) {
+      fetchMySchedule(empProfile.id, myScheduleViewMonth);
+    }
+    if (activeSection === 'salary' && empProfile?.id) {
+      fetchMyPenalty(empProfile.id);
+    }
   }, [user.isHRManager, activeSection, empProfile]);
+
+  // ── Schedule fetch helpers ─────────────────────────────────────────────
+
+  const getYearMonth = (which: 'this' | 'next') => {
+    const now = new Date();
+    if (which === 'next') {
+      const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      return { year: d.getFullYear(), month: d.getMonth() + 1 };
+    }
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  };
+
+  const fetchSchedule = async (deptId: number, which: 'this' | 'next') => {
+    setIsLoadingSchedule(true);
+    try {
+      const { year, month } = getYearMonth(which);
+      const res = await apiClient.get(`/schedule/${deptId}/${year}/${month}`);
+      setScheduleData(res.data);
+      setPendingSlotEdits([]);
+    } catch { triggerToast(lang === 'ar' ? 'فشل تحميل الجدول' : 'Failed to load schedule.'); }
+    finally { setIsLoadingSchedule(false); }
+  };
+
+  const handleAutoGenerate = async () => {
+    if (!empProfile?.department_id) return;
+    setIsAutoGenerating(true);
+    try {
+      const { year, month } = getYearMonth(scheduleViewMonth);
+      const res = await apiClient.post(`/schedule/${empProfile.department_id}/${year}/${month}/auto`);
+      setScheduleData(res.data);
+      setPendingSlotEdits([]);
+      triggerToast(lang === 'ar' ? 'تم توليد الجدول تلقائياً بنجاح' : 'Schedule auto-generated successfully!');
+    } catch { triggerToast(lang === 'ar' ? 'فشل توليد الجدول' : 'Failed to auto-generate schedule.'); }
+    finally { setIsAutoGenerating(false); }
+  };
+
+  const handleSaveSchedule = async () => {
+    if (!empProfile?.department_id || pendingSlotEdits.length === 0) return;
+    setIsSavingSchedule(true);
+    try {
+      await apiClient.patch(`/schedule/${empProfile.department_id}/slots`, { updates: pendingSlotEdits });
+      await fetchSchedule(empProfile.department_id, scheduleViewMonth);
+      triggerToast(lang === 'ar' ? 'تم حفظ التعديلات بنجاح' : 'Schedule adjustments saved!');
+    } catch { triggerToast(lang === 'ar' ? 'فشل حفظ التعديلات' : 'Failed to save adjustments.'); }
+    finally { setIsSavingSchedule(false); }
+  };
+
+  const handlePublishSchedule = async () => {
+    if (!empProfile?.department_id) return;
+    setIsPublishing(true);
+    try {
+      const { year, month } = getYearMonth(scheduleViewMonth);
+      await apiClient.post(`/schedule/${empProfile.department_id}/${year}/${month}/publish`);
+      await fetchSchedule(empProfile.department_id, scheduleViewMonth);
+      triggerToast(lang === 'ar' ? 'تم نشر الجدول بنجاح — الموظفون يمكنهم الآن رؤيته' : 'Schedule published! Employees can now view it.');
+    } catch { triggerToast(lang === 'ar' ? 'فشل نشر الجدول' : 'Failed to publish schedule.'); }
+    finally { setIsPublishing(false); }
+  };
+
+  const fetchAttendance = async (deptId: number) => {
+    setIsLoadingAttendance(true);
+    try {
+      const res = await apiClient.get(`/schedule/${deptId}/attendance/now`);
+      setAttendanceData(res.data);
+    } catch { triggerToast(lang === 'ar' ? 'فشل تحميل الحضور' : 'Failed to load attendance.'); }
+    finally { setIsLoadingAttendance(false); }
+  };
+
+  const fetchAbsenceRecords = async (deptId: number) => {
+    try {
+      const now = new Date();
+      const res = await apiClient.get(`/schedule/absent/${deptId}/${now.getFullYear()}/${now.getMonth() + 1}`);
+      setAbsenceRecords(res.data);
+    } catch { /* silent */ }
+  };
+
+  const handleMarkAbsent = async (employeeId: number) => {
+    if (!empProfile?.department_id) return;
+    setIsMarkingAbsent(employeeId);
+    try {
+      await apiClient.post('/schedule/absent', { employeeId, departmentId: empProfile.department_id });
+      triggerToast(lang === 'ar' ? 'تم تسجيل الغياب بنجاح — خُصم 5000 من راتب الموظف' : 'Absence recorded — 5,000 penalty applied.');
+      await fetchAbsenceRecords(empProfile.department_id);
+      await fetchAttendance(empProfile.department_id);
+    } catch { triggerToast(lang === 'ar' ? 'فشل تسجيل الغياب' : 'Failed to mark absence.'); }
+    finally { setIsMarkingAbsent(null); }
+  };
+
+  const fetchMySchedule = async (employeeId: number, which: 'this' | 'next') => {
+    setIsLoadingMySchedule(true);
+    try {
+      const { year, month } = getYearMonth(which);
+      const res = await apiClient.get(`/schedule/my/${employeeId}/${year}/${month}`);
+      setMyScheduleData(res.data);
+    } catch { /* silent */ }
+    finally { setIsLoadingMySchedule(false); }
+  };
+
+  const fetchMyPenalty = async (employeeId: number) => {
+    try {
+      const res = await apiClient.get(`/schedule/penalty/my/${employeeId}`);
+      setMyPenalty(res.data);
+    } catch { /* silent */ }
+  };
+
 
   // First login submit
   const handleFirstLoginSubmit = async (e: React.FormEvent) => {
@@ -1685,8 +1829,31 @@ export function EmployeeDashboard({
                   {empProfile && (
                     <div className="glass-panel" style={{ padding: '24px' }}>
                       <h4 style={{ marginBottom: '16px', fontWeight: 700 }}>{lang === 'ar' ? 'تفاصيل العقد والتوظيف' : 'Employment & Contract Details'}</h4>
+                      {/* Base salary row */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid hsl(var(--border-color))', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
+                        <span style={{ color: 'hsl(var(--text-secondary))' }}>{lang === 'ar' ? 'الراتب الأساسي' : 'Base Contract Salary'}</span>
+                        <span style={{ fontWeight: 700, color: 'hsl(var(--accent-blue))' }}>{empProfile.salary != null ? fmtSalary(empProfile.salary) : '—'}</span>
+                      </div>
+                      {/* Penalty row — shown if absences exist */}
+                      {myPenalty && myPenalty.absenceCount > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid hsl(var(--border-color))', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
+                          <span style={{ color: 'hsl(var(--danger))' }}>
+                            ⚠️ {lang === 'ar' ? `خصم الغيابات (${myPenalty.absenceCount} × 5,000)` : `Shift Absence Penalty (${myPenalty.absenceCount} × 5,000)`}
+                          </span>
+                          <span style={{ fontWeight: 700, color: 'hsl(var(--danger))' }}>-{myPenalty.penalty.toLocaleString('en-US')} {lang === 'ar' ? 'ريال' : 'YER'}</span>
+                        </div>
+                      )}
+                      {/* Net salary row */}
+                      {myPenalty && myPenalty.absenceCount > 0 && empProfile.salary != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid hsl(var(--border-color))', flexDirection: isRtl ? 'row-reverse' : 'row' }}>
+                          <span style={{ color: 'hsl(var(--text-primary))', fontWeight: 700 }}>{lang === 'ar' ? 'الراتب الصافي' : 'Net Salary'}</span>
+                          <span style={{ fontWeight: 800, color: 'hsl(var(--success))', fontSize: '1.05rem' }}>
+                            {fmtSalary(Number(empProfile.salary) - myPenalty.penalty)}
+                          </span>
+                        </div>
+                      )}
+                      {/* Employment type / title rows */}
                       {[
-                        { label: lang === 'ar' ? 'الراتب الأساسي' : 'Base Contract Salary', val: empProfile.salary != null ? fmtSalary(empProfile.salary) : '—' },
                         { label: lang === 'ar' ? 'طبيعة التوظيف' : 'Employment Type', val: empProfile.employment_type || '—' },
                         { label: lang === 'ar' ? 'المسمى الوظيفي' : 'Job Title', val: empProfile.title || (lang === 'ar' ? 'لا يوجد' : 'None') },
                       ].map((r, i) => (
@@ -1700,16 +1867,91 @@ export function EmployeeDashboard({
                 </div>
               )}
 
-              {/* Schedule Section */}
-              {activeSection === 'schedule' && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '20px' }}>
-                  <span style={{ fontSize: '5rem' }}>📅</span>
-                  <h2 className="text-gradient" style={{ fontSize: '2rem', fontWeight: 800 }}>{lang === 'ar' ? 'جدول العمل' : 'Work Schedule'}</h2>
-                  <p style={{ color: 'hsl(var(--text-secondary))', textAlign: 'center', maxWidth: '380px' }}>
-                    {lang === 'ar' ? 'الميزة قيد التطوير والبرمجة حالياً.' : 'The work schedule feature is currently under active development. Stay tuned!'}
-                  </p>
-                </div>
-              )}
+              {/* My Schedule Section */}
+              {activeSection === 'schedule' && (() => {
+                const { year, month } = getYearMonth(myScheduleViewMonth);
+                const monthName = new Date(year, month - 1, 1).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US', { month: 'long', year: 'numeric' });
+                const slotLabels = ['00:00 – 08:00', '08:00 – 16:00', '16:00 – 00:00'];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    <div>
+                      <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '6px' }}>
+                        {lang === 'ar' ? 'جدولي' : 'My Schedule'}
+                      </h2>
+                      <p style={{ color: 'hsl(var(--text-secondary))' }}>{monthName}</p>
+                    </div>
+
+                    {/* Month toggle */}
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {(['this', 'next'] as const).map(w => (
+                        <button
+                          key={w}
+                          onClick={() => {
+                            setMyScheduleViewMonth(w);
+                            if (empProfile?.id) fetchMySchedule(empProfile.id, w);
+                          }}
+                          className={myScheduleViewMonth === w ? 'btn-primary' : ''}
+                          style={{
+                            padding: '8px 20px', borderRadius: '8px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
+                            border: myScheduleViewMonth === w ? 'none' : '1px solid hsl(var(--border-color))',
+                            background: myScheduleViewMonth === w ? undefined : 'transparent',
+                            color: myScheduleViewMonth === w ? undefined : 'hsl(var(--text-secondary))',
+                          }}
+                        >
+                          {w === 'this' ? (lang === 'ar' ? 'هذا الشهر' : 'This Month') : (lang === 'ar' ? 'الشهر القادم' : 'Next Month')}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Schedule table */}
+                    <div className="glass-panel" style={{ padding: '24px' }}>
+                      {isLoadingMySchedule ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                          <div style={{ width: '30px', height: '30px', border: '3px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                        </div>
+                      ) : myScheduleData.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '50px', color: 'hsl(var(--text-muted))' }}>
+                          <div style={{ fontSize: '3rem', marginBottom: '12px' }}>📭</div>
+                          <div style={{ fontWeight: 600 }}>{lang === 'ar' ? 'لا يوجد جدول منشور بعد.' : 'No published schedule yet.'}</div>
+                          <div style={{ fontSize: '0.82rem', marginTop: '6px' }}>{lang === 'ar' ? 'سيظهر جدولك هنا بعد أن يقوم مدير قسمك بنشره.' : 'Your schedule will appear here once your department manager publishes it.'}</div>
+                        </div>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '16px' }}>
+                            {lang === 'ar' ? 'ورديات العمل المجدولة' : 'Scheduled Work Shifts'}
+                          </h3>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: isRtl ? 'right' : 'left' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid hsl(var(--border-color))' }}>
+                                <th style={{ padding: '10px 14px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>{lang === 'ar' ? 'التاريخ' : 'Date'}</th>
+                                <th style={{ padding: '10px 14px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>{lang === 'ar' ? 'الوردية' : 'Shift'}</th>
+                                <th style={{ padding: '10px 14px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>{lang === 'ar' ? 'التوقيت' : 'Time'}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {myScheduleData.map((s: any) => (
+                                <tr key={s.id} style={{ borderBottom: '1px solid hsla(var(--border-color), 0.5)' }}>
+                                  <td style={{ padding: '12px 14px', fontWeight: 600, fontSize: '0.88rem' }}>
+                                    {s.day}/{s.month}/{s.year}
+                                  </td>
+                                  <td style={{ padding: '12px 14px' }}>
+                                    <span style={{ padding: '3px 12px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 700, background: 'hsla(var(--accent-blue), 0.12)', color: 'hsl(var(--accent-blue))', border: '1px solid hsla(var(--accent-blue), 0.25)' }}>
+                                      {lang === 'ar' ? `وردية ${s.slot + 1}` : `Shift ${s.slot + 1}`}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '12px 14px', fontSize: '0.88rem', color: 'hsl(var(--text-secondary))' }}>
+                                    {slotLabels[s.slot]}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Messages Section */}
               {activeSection === 'messages' && (
@@ -2600,29 +2842,321 @@ export function EmployeeDashboard({
                 </div>
               )}
 
-              {/* Department Schedule Coming Soon */}
-              {activeSection === 'department-schedule' && (
-                <div className="glass-panel" style={{ padding: '50px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📅</div>
-                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '8px' }}>
-                    {lang === 'ar' ? 'جدول القسم' : 'Department Schedule'}
-                  </h2>
-                  <p style={{ color: 'hsl(var(--text-secondary))' }}>
-                    {lang === 'ar' ? 'هذه الميزة ستكون متاحة قريباً.' : 'This feature is coming soon.'}
-                  </p>
-                </div>
-              )}
+              {/* Department Schedule - Full Calendar UI */}
+              {activeSection === 'department-schedule' && (() => {
+                const { year, month } = getYearMonth(scheduleViewMonth);
+                const daysInMonth = new Date(year, month, 0).getDate();
+                const monthName = new Date(year, month - 1, 1).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US', { month: 'long', year: 'numeric' });
+                const slotLabels = ['00:00–08:00', '08:00–16:00', '16:00–00:00'];
+                const isPublished = scheduleData.some(s => s.published);
 
-              {/* Department Attendance Coming Soon */}
+                // Build lookup map: key = `${day}-${slot}` → {id, employeeId, employeeName}
+                const slotMap: Record<string, any> = {};
+                for (const s of scheduleData) {
+                  slotMap[`${s.day}-${s.slot}`] = s;
+                }
+
+                // Apply pending edits to display
+                const pendingMap: Record<number, number | null> = {};
+                for (const pe of pendingSlotEdits) pendingMap[pe.id] = pe.employeeId;
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {/* Header */}
+                    <div>
+                      <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '6px' }}>
+                        {lang === 'ar' ? 'جدول القسم' : 'Department Schedule'}
+                      </h2>
+                      <p style={{ color: 'hsl(var(--text-secondary))' }}>{monthName}</p>
+                    </div>
+
+                    {/* Month Toggle */}
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {(['this', 'next'] as const).map(w => (
+                        <button
+                          key={w}
+                          onClick={() => {
+                            setScheduleViewMonth(w);
+                            if (empProfile?.department_id) fetchSchedule(empProfile.department_id, w);
+                          }}
+                          className={scheduleViewMonth === w ? 'btn-primary' : ''}
+                          style={{
+                            padding: '8px 20px', borderRadius: '8px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
+                            border: scheduleViewMonth === w ? 'none' : '1px solid hsl(var(--border-color))',
+                            background: scheduleViewMonth === w ? undefined : 'transparent',
+                            color: scheduleViewMonth === w ? undefined : 'hsl(var(--text-secondary))',
+                          }}
+                        >
+                          {w === 'this' ? (lang === 'ar' ? 'هذا الشهر' : 'This Month') : (lang === 'ar' ? 'الشهر القادم' : 'Next Month')}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button
+                        onClick={handleAutoGenerate}
+                        disabled={isAutoGenerating}
+                        className="btn-primary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', fontSize: '0.88rem' }}
+                      >
+                        {isAutoGenerating ? <div style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> : '⚡'}
+                        {lang === 'ar' ? 'جدولة تلقائية' : 'Auto Schedule'}
+                      </button>
+                      {pendingSlotEdits.length > 0 && (
+                        <button
+                          onClick={handleSaveSchedule}
+                          disabled={isSavingSchedule}
+                          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', fontSize: '0.88rem', fontWeight: 600, borderRadius: '8px', border: '1px solid hsl(var(--success))', background: 'hsla(var(--success), 0.1)', color: 'hsl(var(--success))', cursor: 'pointer' }}
+                        >
+                          {isSavingSchedule ? '...' : '💾'} {lang === 'ar' ? `حفظ التعديلات (${pendingSlotEdits.length})` : `Save Adjustments (${pendingSlotEdits.length})`}
+                        </button>
+                      )}
+                      {scheduleData.length > 0 && !isPublished && (
+                        <button
+                          onClick={handlePublishSchedule}
+                          disabled={isPublishing}
+                          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', fontSize: '0.88rem', fontWeight: 600, borderRadius: '8px', border: '1px solid hsl(var(--accent-blue))', background: 'hsla(var(--accent-blue), 0.1)', color: 'hsl(var(--accent-blue))', cursor: 'pointer' }}
+                        >
+                          {isPublishing ? '...' : '📢'} {lang === 'ar' ? 'نشر الجدول' : 'Publish Schedule'}
+                        </button>
+                      )}
+                      {isPublished && (
+                        <span style={{ fontSize: '0.82rem', color: 'hsl(var(--success))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          ✅ {lang === 'ar' ? 'الجدول منشور' : 'Schedule Published'}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Calendar Grid */}
+                    <div className="glass-panel" style={{ padding: '20px', overflowX: 'auto' }}>
+                      {isLoadingSchedule ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                          <div style={{ width: '32px', height: '32px', border: '3px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                        </div>
+                      ) : (
+                        <div style={{ minWidth: `${daysInMonth * 100}px` }}>
+                          {/* Day headers */}
+                          <div style={{ display: 'grid', gridTemplateColumns: `80px repeat(${daysInMonth}, 90px)`, gap: '4px', marginBottom: '6px' }}>
+                            <div />
+                            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => (
+                              <div key={d} style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 700, color: 'hsl(var(--text-muted))', padding: '4px 0' }}>
+                                {d}/{month}
+                              </div>
+                            ))}
+                          </div>
+                          {/* Slot rows */}
+                          {[0, 1, 2].map(slot => (
+                            <div key={slot} style={{ display: 'grid', gridTemplateColumns: `80px repeat(${daysInMonth}, 90px)`, gap: '4px', marginBottom: '4px' }}>
+                              {/* Time label */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textAlign: 'center', padding: '4px 2px', borderRadius: '6px', background: 'hsl(var(--bg-tertiary))' }}>
+                                {slotLabels[slot]}
+                              </div>
+                              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                                const cell = slotMap[`${day}-${slot}`];
+                                const pendingEmpId = cell ? pendingMap[cell.id] : undefined;
+                                const displayEmpId = pendingEmpId !== undefined ? pendingEmpId : cell?.employeeId;
+                                const displayName2 = pendingEmpId !== undefined
+                                  ? (myDeptEmployees.find((e: any) => e.employee_id === pendingEmpId)?.english_first_name || '?')
+                                  : (cell?.employeeName?.split(' ')[0] || null);
+                                const hasPending = cell && pendingMap[cell.id] !== undefined;
+                                return (
+                                  <div
+                                    key={day}
+                                    onClick={() => {
+                                      if (!cell) return;
+                                      setEditingSlot(cell);
+                                      setSlotPopupEmpId(displayEmpId ?? null);
+                                    }}
+                                    title={displayName2 ? `${displayName2} — click to reassign` : 'Empty slot — auto-schedule to fill'}
+                                    style={{
+                                      padding: '6px 4px', borderRadius: '6px', textAlign: 'center', fontSize: '0.7rem', fontWeight: 600,
+                                      cursor: cell ? 'pointer' : 'default',
+                                      background: hasPending ? 'hsla(var(--accent-teal), 0.15)' : displayEmpId ? 'hsla(var(--accent-blue), 0.12)' : 'hsl(var(--bg-tertiary))',
+                                      border: `1px solid ${hasPending ? 'hsla(var(--accent-teal), 0.4)' : displayEmpId ? 'hsla(var(--accent-blue), 0.3)' : 'hsl(var(--border-color))'}`,
+                                      color: hasPending ? 'hsl(var(--accent-teal))' : displayEmpId ? 'hsl(var(--accent-blue))' : 'hsl(var(--text-muted))',
+                                      transition: 'all 0.15s ease',
+                                      minHeight: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                                    }}
+                                  >
+                                    {displayName2 || '—'}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Slot reassignment popup */}
+                    {editingSlot && (
+                      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={() => setEditingSlot(null)}>
+                        <div className="glass-panel" style={{ padding: '28px', minWidth: '320px', maxWidth: '420px', width: '90%' }} onClick={e => e.stopPropagation()}>
+                          <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '16px' }}>
+                            {lang === 'ar' ? 'تغيير الموظف المجدول' : 'Reassign Slot'}
+                          </h3>
+                          <p style={{ fontSize: '0.82rem', color: 'hsl(var(--text-muted))', marginBottom: '16px' }}>
+                            {lang === 'ar' ? `اليوم ${editingSlot.day} • ${slotLabels[editingSlot.slot]}` : `Day ${editingSlot.day} • ${slotLabels[editingSlot.slot]}`}
+                          </p>
+                          <select
+                            value={slotPopupEmpId ?? ''}
+                            onChange={e => setSlotPopupEmpId(e.target.value ? Number(e.target.value) : null)}
+                            className="form-input"
+                            style={{ width: '100%', marginBottom: '20px' }}
+                          >
+                            <option value="">{lang === 'ar' ? 'بدون موظف' : 'Empty'}</option>
+                            {myDeptEmployees.map((emp: any) => (
+                              <option key={emp.employee_id} value={emp.employee_id}>
+                                {emp.english_first_name} {emp.english_last_name}
+                              </option>
+                            ))}
+                          </select>
+                          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                            <button onClick={() => setEditingSlot(null)} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid hsl(var(--border-color))', background: 'transparent', cursor: 'pointer', color: 'hsl(var(--text-secondary))' }}>
+                              {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                            </button>
+                            <button
+                              className="btn-primary"
+                              onClick={() => {
+                                const existingEdit = pendingSlotEdits.findIndex(pe => pe.id === editingSlot.id);
+                                if (existingEdit >= 0) {
+                                  const copy = [...pendingSlotEdits];
+                                  copy[existingEdit] = { id: editingSlot.id, employeeId: slotPopupEmpId };
+                                  setPendingSlotEdits(copy);
+                                } else {
+                                  setPendingSlotEdits(prev => [...prev, { id: editingSlot.id, employeeId: slotPopupEmpId }]);
+                                }
+                                setEditingSlot(null);
+                              }}
+                              style={{ padding: '8px 20px' }}
+                            >
+                              {lang === 'ar' ? 'تأكيد' : 'Confirm'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Department Attendance - Full UI */}
               {activeSection === 'department-attendance' && (
-                <div className="glass-panel" style={{ padding: '50px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '3rem', marginBottom: '16px' }}>⏱️</div>
-                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '8px' }}>
-                    {lang === 'ar' ? 'حضور القسم' : 'Department Attendance'}
-                  </h2>
-                  <p style={{ color: 'hsl(var(--text-secondary))' }}>
-                    {lang === 'ar' ? 'هذه الميزة ستكون متاحة قريباً.' : 'This feature is coming soon.'}
-                  </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  <div>
+                    <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '6px' }}>
+                      {lang === 'ar' ? 'حضور القسم' : 'Department Attendance'}
+                    </h2>
+                    <p style={{ color: 'hsl(var(--text-secondary))' }}>
+                      {lang === 'ar' ? 'من يجب أن يكون في الوردية الحالية' : 'Who should be on shift right now'}
+                    </p>
+                  </div>
+
+                  {/* Current Shift Panel */}
+                  <div className="glass-panel" style={{ padding: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                      <div>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '4px' }}>
+                          {lang === 'ar' ? 'الوردية الحالية' : 'Current Shift'}
+                        </h3>
+                        {attendanceData && (
+                          <span style={{ fontSize: '0.82rem', color: 'hsl(var(--accent-blue))', fontWeight: 600 }}>
+                            {attendanceData.slotLabel} — {attendanceData.day}/{attendanceData.month}/{attendanceData.year}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => empProfile?.department_id && fetchAttendance(empProfile.department_id)}
+                        style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid hsl(var(--border-color))', background: 'transparent', cursor: 'pointer', fontSize: '0.82rem', color: 'hsl(var(--text-secondary))' }}
+                      >
+                        🔄 {lang === 'ar' ? 'تحديث' : 'Refresh'}
+                      </button>
+                    </div>
+
+                    {isLoadingAttendance ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: '30px' }}>
+                        <div style={{ width: '28px', height: '28px', border: '3px solid hsla(var(--accent-blue), 0.1)', borderTopColor: 'hsl(var(--accent-blue))', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      </div>
+                    ) : !attendanceData || attendanceData.employees.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '30px', color: 'hsl(var(--text-muted))' }}>
+                        <div style={{ fontSize: '2rem', marginBottom: '8px' }}>📭</div>
+                        {lang === 'ar' ? 'لا يوجد موظفون مجدولون في هذه الوردية.' : 'No employees scheduled for this shift. Publish a schedule first.'}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {attendanceData.employees.map((item: any) => {
+                          const alreadyAbsent = absenceRecords.some(r => r.employeeId === item.employee.employee_id);
+                          return (
+                            <div
+                              key={item.employee.employee_id}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderRadius: '10px', background: 'hsl(var(--bg-tertiary))', border: '1px solid hsl(var(--border-color))' }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'hsla(var(--accent-blue), 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>👤</div>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>
+                                    {lang === 'ar' ? `${item.employee.arabic_first_name} ${item.employee.arabic_last_name}` : `${item.employee.english_first_name} ${item.employee.english_last_name}`}
+                                  </div>
+                                  {alreadyAbsent && (
+                                    <div style={{ fontSize: '0.72rem', color: 'hsl(var(--danger))', fontWeight: 600 }}>
+                                      ⚠️ {lang === 'ar' ? 'مسجل غياب هذا الشهر' : 'Absence recorded this month'}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleMarkAbsent(item.employee.employee_id)}
+                                disabled={isMarkingAbsent === item.employee.employee_id}
+                                style={{
+                                  padding: '7px 16px', borderRadius: '8px', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer',
+                                  border: '1px solid hsl(var(--danger))', background: 'hsla(var(--danger), 0.1)', color: 'hsl(var(--danger))',
+                                }}
+                              >
+                                {isMarkingAbsent === item.employee.employee_id ? '...' : (lang === 'ar' ? 'تسجيل غياب' : 'Mark Absent')}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Absence Records Table */}
+                  {absenceRecords.length > 0 && (
+                    <div className="glass-panel" style={{ padding: '24px' }}>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '16px' }}>
+                        {lang === 'ar' ? 'سجل الغيابات — هذا الشهر' : 'Absence Log — This Month'}
+                      </h3>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: isRtl ? 'right' : 'left' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid hsl(var(--border-color))' }}>
+                              <th style={{ padding: '10px 12px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>{lang === 'ar' ? 'الموظف' : 'Employee'}</th>
+                              <th style={{ padding: '10px 12px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>{lang === 'ar' ? 'عدد الغيابات' : 'Absences'}</th>
+                              <th style={{ padding: '10px 12px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>{lang === 'ar' ? 'الخصم الكلي' : 'Total Penalty'}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {absenceRecords.map((r: any) => (
+                              <tr key={r.id} style={{ borderBottom: '1px solid hsla(var(--border-color), 0.5)' }}>
+                                <td style={{ padding: '12px', fontWeight: 600, fontSize: '0.88rem' }}>{r.employeeName}</td>
+                                <td style={{ padding: '12px' }}>
+                                  <span style={{ padding: '3px 10px', borderRadius: '12px', background: 'hsla(var(--danger), 0.1)', color: 'hsl(var(--danger))', fontWeight: 700, fontSize: '0.82rem' }}>
+                                    {r.absenceCount}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '12px', fontWeight: 700, color: 'hsl(var(--danger))', fontSize: '0.88rem' }}>
+                                  -{(r.absenceCount * 5000).toLocaleString('en-US')} {lang === 'ar' ? 'ريال' : 'YER'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>

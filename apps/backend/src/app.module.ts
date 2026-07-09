@@ -16,6 +16,7 @@ import { DepartmentsModule } from './modules/departments/departments.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { BudgetModule } from './modules/budget/budget.module';
 import { MessagesModule } from './modules/messages/messages.module';
+import { ScheduleModule } from './modules/schedule/schedule.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { MessagesModule } from './modules/messages/messages.module';
     EmployeesModule,
     BudgetModule,
     MessagesModule,
+    ScheduleModule,
   ],
   providers: [
     {
