@@ -2980,10 +2980,11 @@ export function DirectorDashboard({
                     )}
 
                     {/* Employees Registry Table */}
-                    <div className="glass-panel" style={{ padding: '24px' }}>
-                      <h3 style={{ fontSize: '1.2rem', marginBottom: '16px', fontWeight: 700 }}>
-                        {lang === 'ar' ? 'سجل الموظفين' : 'Employee Registry'}
-                      </h3>
+                    {empFormMode !== 'EDIT' && (
+                      <div className="glass-panel" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.2rem', marginBottom: '16px', fontWeight: 700 }}>
+                          {lang === 'ar' ? 'سجل الموظفين' : 'Employee Registry'}
+                        </h3>
 
                       {isLoadingEmps ? (
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px' }}>
@@ -3109,6 +3110,7 @@ export function DirectorDashboard({
                         </div>
                       )}
                     </div>
+                  )}
 
                   </div>
                 </div>
