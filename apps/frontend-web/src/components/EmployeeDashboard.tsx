@@ -579,6 +579,7 @@ export function EmployeeDashboard({
     });
     setEditingEmp(emp);
     setEmpFormMode('EDIT');
+    document.querySelector('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSaveEmp = async (e: React.FormEvent) => {
