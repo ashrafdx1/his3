@@ -170,6 +170,14 @@ export function EmployeeDashboard({
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [isLoadingDeptModal, setIsLoadingDeptModal] = useState(false);
 
+  // Manager: My Department States
+  const [myDeptEmployees, setMyDeptEmployees] = useState<any[]>([]);
+  const [isLoadingMyDept, setIsLoadingMyDept] = useState(false);
+  const [showRequestStaffModal, setShowRequestStaffModal] = useState(false);
+  const [wantedCount, setWantedCount] = useState<number>(1);
+  const [requestReason, setRequestReason] = useState('');
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+
 
   // Unsaved changes warning state
   const [navWarning, setNavWarning] = useState<{
@@ -321,6 +329,51 @@ export function EmployeeDashboard({
     }
   };
 
+  const fetchMyDeptDetails = async () => {
+    if (!empProfile || !empProfile.department_id) return;
+    setIsLoadingMyDept(true);
+    try {
+      const res = await apiClient.get(`/departments/${empProfile.department_id}/employees`);
+      setMyDeptEmployees(res.data);
+      await fetchDepartments();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingMyDept(false);
+    }
+  };
+
+  const handleRequestStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!empProfile || !empProfile.department_id) return;
+    setIsSubmittingRequest(true);
+    try {
+      await apiClient.post(`/departments/${empProfile.department_id}/request-employees`, {
+        wantedCount,
+        reason: requestReason
+      });
+      triggerToast(lang === 'ar' ? 'تم إرسال طلب الموظفين بنجاح' : 'Staff request sent successfully.');
+      setShowRequestStaffModal(false);
+      setWantedCount(1);
+      setRequestReason('');
+      fetchMyDeptDetails();
+    } catch (err) {
+      triggerToast(lang === 'ar' ? 'فشل إرسال طلب الموظفين' : 'Failed to send staff request.');
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  const handleClearRequest = async (deptId: number) => {
+    try {
+      await apiClient.post(`/departments/${deptId}/clear-request`);
+      triggerToast(lang === 'ar' ? 'تم إنهاء طلب القسم بنجاح' : 'Cleared department request successfully.');
+      await fetchDepartments();
+    } catch (err) {
+      triggerToast(lang === 'ar' ? 'فشل إنهاء طلب القسم' : 'Failed to clear department request.');
+    }
+  };
+
   const openDeptModal = async (deptId: number, deptName: string, mode: 'ADD_EMPLOYEES' | 'VIEW_EMPLOYEES') => {
     setActiveDeptId(deptId);
     setActiveDeptName(deptName);
@@ -367,14 +420,20 @@ export function EmployeeDashboard({
   };
 
   useEffect(() => {
-    if (user.isHRManager) {
+    const isHR = empProfile ? empProfile.isHRManager === true : user.isHRManager;
+    if (isHR) {
+      fetchDepartments();
       if (activeSection === 'employees-management') {
         fetchEmployees();
-      } else if (activeSection === 'departments-management') {
-        fetchDepartments();
       }
+    } else if (empProfile && empProfile.title === 'Manager') {
+      // Fetch departments for standard managers too, so they can resolve their department name
+      fetchDepartments();
     }
-  }, [user.isHRManager, activeSection]);
+    if (activeSection === 'my-department') {
+      fetchMyDeptDetails();
+    }
+  }, [user.isHRManager, activeSection, empProfile]);
 
   // First login submit
   const handleFirstLoginSubmit = async (e: React.FormEvent) => {
@@ -602,11 +661,23 @@ export function EmployeeDashboard({
 
   const handleLogout = () => { setShowFarewell(true); setTimeout(onLogout, 2800); };
 
-  const navItems = [
-    ...(user.isHRManager ? [
+  const isHR = empProfile ? empProfile.isHRManager === true : user.isHRManager;
+  const isDeptManager = empProfile ? empProfile.title === 'Manager' : false;
+  const hasActiveDeptRequests = dbDepartments.some(d => d.requestedCount && d.requestedCount > 0);
+
+  const managerItems = isDeptManager ? [
+    { id: 'my-department', label: lang === 'ar' ? '🏢 قسمي' : '🏢 My Department', desc: lang === 'ar' ? 'إدارة تفاصيل قسمك' : 'Manage your department details' },
+    { id: 'department-schedule', label: lang === 'ar' ? '📅 جدول القسم' : '📅 Department Schedule', desc: lang === 'ar' ? 'قريباً' : 'Coming soon' },
+    { id: 'department-attendance', label: lang === 'ar' ? '⏱️ حضور القسم' : '⏱️ Department Attendance', desc: lang === 'ar' ? 'قريباً' : 'Coming soon' },
+  ] : [];
+
+  const navItems: Array<{ id: string; label: string; desc: string; badge?: any }> = [
+    ...(isDeptManager && !isHR ? managerItems : []),
+    ...(isHR ? [
       { id: 'employees-management', label: lang === 'ar' ? '👥 إدارة الموظفين' : '👥 Employees Management', desc: lang === 'ar' ? 'إضافة وتحرير الموظفين' : 'Add and edit employees' },
-      { id: 'departments-management', label: lang === 'ar' ? '🏢 إدارة الأقسام' : '🏢 Departments Management', desc: lang === 'ar' ? 'عرض الأقسام والموظفين' : 'View departments and employees' }
+      { id: 'departments-management', label: lang === 'ar' ? '🏢 إدارة الأقسام' : '🏢 Departments Management', desc: lang === 'ar' ? 'عرض الأقسام والموظفين' : 'View departments and employees', badge: hasActiveDeptRequests }
     ] : []),
+    ...(isDeptManager && isHR ? managerItems : []),
     { id: 'overview', label: lang === 'ar' ? '🏥 نظرة عامة' : '🏥 Overview', desc: lang === 'ar' ? 'لوحة التحكم' : 'Your dashboard' },
     { id: 'salary', label: lang === 'ar' ? '💰 الراتب' : '💰 Salary', desc: lang === 'ar' ? 'راتبك الحالي' : 'Your current salary' },
     { id: 'schedule', label: lang === 'ar' ? '📅 الجدول' : '📅 Schedule', desc: lang === 'ar' ? 'جدول العمل' : 'Work schedule' },
@@ -882,7 +953,7 @@ export function EmployeeDashboard({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' /* , flexDirection: isRtl ? 'row-reverse' : 'row' */ }}>
                 <div style={{ fontSize: '0.88rem', fontWeight: 600 }}>{item.label}</div>
-                {item.id === 'messages' && hasUnread && (
+                {item.badge && (
                   <span style={{
                     backgroundColor: 'hsl(var(--danger))',
                     color: 'white',
@@ -944,6 +1015,9 @@ export function EmployeeDashboard({
                 ? (lang === 'ar' ? 'إعدادات الحساب' : 'Account Settings')
                 : activeSection === 'employees-management' ? (lang === 'ar' ? 'إدارة الموظفين' : 'Employees Management')
                 : activeSection === 'departments-management' ? (lang === 'ar' ? 'إدارة الأقسام' : 'Departments Management')
+                : activeSection === 'my-department' ? (lang === 'ar' ? 'قسمي' : 'My Department')
+                : activeSection === 'department-schedule' ? (lang === 'ar' ? 'جدول القسم' : 'Department Schedule')
+                : activeSection === 'department-attendance' ? (lang === 'ar' ? 'حضور القسم' : 'Department Attendance')
                 : activeSection === 'overview' ? (lang === 'ar' ? 'نظرة عامة' : 'Overview')
                 : activeSection === 'salary' ? (lang === 'ar' ? 'الراتب' : 'Salary')
                 : activeSection === 'schedule' ? (lang === 'ar' ? 'الجدول' : 'Schedule')
@@ -1498,6 +1572,49 @@ export function EmployeeDashboard({
             </div>
           ) : (
             <>
+              {/* HR Manager Pending Requests Notifications */}
+              {isHR && dbDepartments.filter(d => d.requestedCount && d.requestedCount > 0).map(dept => (
+                <div className="glass-panel alert-notification-banner" style={{
+                  padding: '16px 24px',
+                  borderRadius: '12px',
+                  border: '1px solid hsla(var(--danger), 0.3)',
+                  backgroundColor: 'hsla(var(--danger), 0.05)',
+                  color: 'hsl(var(--text-primary))',
+                  marginBottom: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px'
+                }} key={dept.departmentId}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>🚨</span>
+                    <div>
+                      <span style={{ fontWeight: 700, color: 'hsl(var(--danger))' }}>
+                        {lang === 'ar' ? 'طلب موظفين جديد:' : 'New Staff Request:'}
+                      </span>{' '}
+                      {lang === 'ar' 
+                        ? `قسم "${dept['dept-arabic-name'] || dept.name}" يطلب ${dept.requestedCount} موظفين.` 
+                        : `Department "${dept.name}" wants ${dept.requestedCount} employees.`}
+                      {dept.requestedReason && (
+                        <span style={{ fontSize: '0.82rem', color: 'hsl(var(--text-secondary))', display: 'block', marginTop: '2px' }}>
+                          {lang === 'ar' ? `السبب: ${dept.requestedReason}` : `Reason: ${dept.requestedReason}`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setActiveSection('departments-management');
+                      setShowSettings(false);
+                    }}
+                    className="btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '0.8rem', fontWeight: 600 }}
+                  >
+                    {lang === 'ar' ? 'عرض الطلبات' : 'View Requests'}
+                  </button>
+                </div>
+              ))}
+
               {/* Overview Page */}
               {activeSection === 'overview' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
@@ -2299,30 +2416,204 @@ export function EmployeeDashboard({
                     )}
                   </div>
 
-                  {/* Department Requests Section (Empty for now) */}
+                  {/* Department Requests Section */}
                   <div className="glass-panel" style={{ padding: '24px' }}>
                     <h3 style={{ fontSize: '1.2rem', marginBottom: '16px', fontWeight: 700 }}>
                       {lang === 'ar' ? 'طلبات الأقسام' : 'Department Requests'}
                     </h3>
-                    <div style={{
-                      textAlign: 'center',
-                      padding: '30px 20px',
-                      color: 'hsl(var(--text-muted))',
-                      background: 'hsla(var(--bg-tertiary), 0.3)',
-                      borderRadius: '8px',
-                      border: '1px dashed hsla(var(--border-color), 0.6)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '10px'
-                    }}>
-                      <span style={{ fontSize: '1.8rem' }}>🏢</span>
-                      <span style={{ fontSize: '0.85rem' }}>
-                        {lang === 'ar' ? 'لا توجد طلبات أقسام معلقة حالياً.' : 'No pending department requests.'}
-                      </span>
-                    </div>
+                    {dbDepartments.filter(d => d.requestedCount && d.requestedCount > 0).length === 0 ? (
+                      <div style={{
+                        textAlign: 'center',
+                        padding: '30px 20px',
+                        color: 'hsl(var(--text-muted))',
+                        background: 'hsla(var(--bg-tertiary), 0.3)',
+                        borderRadius: '8px',
+                        border: '1px dashed hsla(var(--border-color), 0.6)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }}>
+                        <span style={{ fontSize: '1.8rem' }}>🏢</span>
+                        <span style={{ fontSize: '0.85rem' }}>
+                          {lang === 'ar' ? 'لا توجد طلبات أقسام معلقة حالياً.' : 'No pending department requests.'}
+                        </span>
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: isRtl ? 'right' : 'left', fontSize: '0.9rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid hsl(var(--border-color))', color: 'hsl(var(--text-muted))' }}>
+                              <th style={{ padding: '12px' }}>{lang === 'ar' ? 'القسم' : 'Department'}</th>
+                              <th style={{ padding: '12px' }}>{lang === 'ar' ? 'عدد الموظفين المطلوبين' : 'Requested Count'}</th>
+                              <th style={{ padding: '12px' }}>{lang === 'ar' ? 'السبب' : 'Reason'}</th>
+                              <th style={{ padding: '12px', width: '150px' }}>{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {dbDepartments.filter(d => d.requestedCount && d.requestedCount > 0).map((dept) => (
+                              <tr key={dept.id} style={{ borderBottom: '1px solid hsla(var(--border-color), 0.5)' }}>
+                                <td style={{ padding: '12px', fontWeight: 600 }}>{dept.name}</td>
+                                <td style={{ padding: '12px', color: 'hsl(var(--danger))', fontWeight: 700 }}>
+                                  {dept.requestedCount} {lang === 'ar' ? 'موظفين' : 'employees'}
+                                </td>
+                                <td style={{ padding: '12px', color: 'hsl(var(--text-secondary))' }}>
+                                  {dept.requestedReason || '—'}
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  <button
+                                    onClick={() => handleClearRequest(dept.departmentId)}
+                                    className="btn-primary"
+                                    style={{ padding: '6px 12px', fontSize: '0.8rem', fontWeight: 600 }}
+                                  >
+                                    {lang === 'ar' ? 'إنهاء الطلب' : 'Done Request'}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
 
+                </div>
+              )}
+
+              {/* My Department Page */}
+              {activeSection === 'my-department' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                    <div>
+                      <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '6px' }}>
+                        {lang === 'ar' ? '🏢 قسمي' : '🏢 My Department'}
+                      </h2>
+                      <p style={{ color: 'hsl(var(--text-secondary))' }}>
+                        {lang === 'ar' ? 'عرض تفاصيل قسمك الحالي والموظفين.' : 'View details of your assigned department and current staff.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowRequestStaffModal(true)}
+                      className="btn-primary"
+                      style={{ padding: '10px 20px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                      <span>➕</span>
+                      {lang === 'ar' ? 'طلب موظفين' : 'Request Employees'}
+                    </button>
+                  </div>
+
+                  {isLoadingMyDept ? (
+                    <div style={{ padding: '40px', textAlign: 'center', color: 'hsl(var(--text-muted))' }}>
+                      {lang === 'ar' ? 'جاري تحميل تفاصيل القسم...' : 'Loading department details...'}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Department Info Panel */}
+                      <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                          <div>
+                            <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', marginBottom: '4px' }}>
+                              {lang === 'ar' ? 'اسم القسم' : 'Department Name'}
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'hsl(var(--accent-blue))' }}>
+                              {dbDepartments.find(d => d.departmentId === empProfile?.department_id)?.name || (lang === 'ar' ? 'غير معين' : 'Unassigned')}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', marginBottom: '4px' }}>
+                              {lang === 'ar' ? 'عدد الموظفين' : 'Staff Count'}
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'hsl(var(--accent-teal))' }}>
+                              {myDeptEmployees.length} {lang === 'ar' ? 'موظف' : 'employees'}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', marginBottom: '4px' }}>
+                              {lang === 'ar' ? 'طلب موظفين نشط' : 'Active Staff Request'}
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'hsl(var(--text-primary))' }}>
+                              {dbDepartments.find(d => d.departmentId === empProfile?.department_id)?.requestedCount ? (
+                                <span style={{ color: 'hsl(var(--warning))' }}>
+                                  {dbDepartments.find(d => d.departmentId === empProfile?.department_id)?.requestedCount} {lang === 'ar' ? 'موظف مطلوب' : 'employees requested'}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'hsl(var(--success))' }}>{lang === 'ar' ? 'لا يوجد طلبات' : 'No active requests'}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Employees List */}
+                      <div>
+                        <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>
+                          {lang === 'ar' ? '👥 الموظفون في هذا القسم' : '👥 Staff Registry'}
+                        </h3>
+                        <div className="glass-panel table-container" style={{ padding: '8px 0', border: '1px solid hsl(var(--border-color))' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid hsl(var(--border-color))', color: 'hsl(var(--text-muted))', textAlign: isRtl ? 'right' : 'left' }}>
+                                <th style={{ padding: '12px 18px' }}>{lang === 'ar' ? 'الاسم' : 'Name'}</th>
+                                <th style={{ padding: '12px 18px' }}>{lang === 'ar' ? 'المسمى الوظيفي' : 'Title'}</th>
+                                <th style={{ padding: '12px 18px' }}>{lang === 'ar' ? 'البريد الإلكتروني' : 'Email'}</th>
+                                <th style={{ padding: '12px 18px' }}>{lang === 'ar' ? 'رقم الهاتف' : 'Phone'}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {myDeptEmployees.length === 0 ? (
+                                <tr>
+                                  <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'hsl(var(--text-muted))' }}>
+                                    {lang === 'ar' ? 'لا يوجد موظفون في هذا القسم حالياً.' : 'No employees in this department yet.'}
+                                  </td>
+                                </tr>
+                              ) : (
+                                myDeptEmployees.map((emp) => (
+                                  <tr key={emp.employee_id} style={{ borderBottom: '1px solid hsl(var(--border-color))' }}>
+                                    <td style={{ padding: '12px 18px', fontWeight: 600 }}>
+                                      {lang === 'ar' 
+                                        ? `${emp.arabic_first_name} ${emp.arabic_last_name}` 
+                                        : `${emp.english_first_name} ${emp.english_last_name}`}
+                                    </td>
+                                    <td style={{ padding: '12px 18px', color: 'hsl(var(--text-secondary))' }}>
+                                      {emp.title || (lang === 'ar' ? 'موظف' : 'Staff')}
+                                    </td>
+                                    <td style={{ padding: '12px 18px', color: 'hsl(var(--text-secondary))' }}>{emp.email}</td>
+                                    <td style={{ padding: '12px 18px', color: 'hsl(var(--text-secondary))' }}>{emp.phone_number || '—'}</td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Department Schedule Coming Soon */}
+              {activeSection === 'department-schedule' && (
+                <div className="glass-panel" style={{ padding: '50px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📅</div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '8px' }}>
+                    {lang === 'ar' ? 'جدول القسم' : 'Department Schedule'}
+                  </h2>
+                  <p style={{ color: 'hsl(var(--text-secondary))' }}>
+                    {lang === 'ar' ? 'هذه الميزة ستكون متاحة قريباً.' : 'This feature is coming soon.'}
+                  </p>
+                </div>
+              )}
+
+              {/* Department Attendance Coming Soon */}
+              {activeSection === 'department-attendance' && (
+                <div className="glass-panel" style={{ padding: '50px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '16px' }}>⏱️</div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '8px' }}>
+                    {lang === 'ar' ? 'حضور القسم' : 'Department Attendance'}
+                  </h2>
+                  <p style={{ color: 'hsl(var(--text-secondary))' }}>
+                    {lang === 'ar' ? 'هذه الميزة ستكون متاحة قريباً.' : 'This feature is coming soon.'}
+                  </p>
                 </div>
               )}
             </>
@@ -2566,6 +2857,94 @@ export function EmployeeDashboard({
                 {lang === 'ar' ? 'استمرار' : 'Proceed'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request Staff Modal */}
+      {showRequestStaffModal && (
+        <div className="modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 999,
+          padding: '20px'
+        }}>
+          <div className="glass-panel modal-content" style={{
+            width: '100%',
+            maxWidth: '500px',
+            padding: '30px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '24px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+                {lang === 'ar' ? 'طلب موظفين جديد' : 'Request New Employees'}
+              </h3>
+              <button 
+                onClick={() => setShowRequestStaffModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'hsl(var(--text-muted))' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestStaffSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group">
+                <label className="form-label" style={{ marginBottom: '6px' }}>
+                  {lang === 'ar' ? 'عدد الموظفين المطلوبين' : 'Number of wanted employees'}
+                </label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  required 
+                  className="form-input"
+                  value={wantedCount}
+                  onChange={e => setWantedCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" style={{ marginBottom: '6px' }}>
+                  {lang === 'ar' ? 'السبب (اختياري)' : 'Reason for request (optional)'}
+                </label>
+                <textarea 
+                  rows={4}
+                  className="form-input"
+                  placeholder={lang === 'ar' ? 'اكتب سبب طلب الموظفين...' : 'Write reason for the staff request...'}
+                  value={requestReason}
+                  onChange={e => setRequestReason(e.target.value)}
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowRequestStaffModal(false)}
+                  className="btn-secondary"
+                  style={{ padding: '10px 18px' }}
+                >
+                  {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmittingRequest}
+                  className="btn-primary"
+                  style={{ padding: '10px 18px' }}
+                >
+                  {isSubmittingRequest ? (lang === 'ar' ? 'جارٍ الإرسال...' : 'Sending...') : (lang === 'ar' ? 'إرسال الطلب' : 'Send Request')}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

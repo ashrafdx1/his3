@@ -89,4 +89,20 @@ export class DepartmentsController {
     await this.departmentsService.remove(id);
     return { success: true, message: 'Department successfully deleted.' };
   }
+
+  @Post(':id/request-employees')
+  @Roles() // Allow any authenticated user (e.g. department managers)
+  @ApiOperation({ summary: 'Request new employees for this department' })
+  async requestEmployees(
+    @Param('id') id: string,
+    @Body() body: { wantedCount: number; reason?: string }
+  ) {
+    return this.departmentsService.requestEmployees(id, body.wantedCount, body.reason);
+  }
+
+  @Post(':id/clear-request')
+  @ApiOperation({ summary: 'Clear/done employee request for this department' })
+  async clearRequest(@Param('id') id: string) {
+    return this.departmentsService.clearRequest(id);
+  }
 }

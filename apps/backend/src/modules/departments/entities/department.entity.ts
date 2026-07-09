@@ -28,4 +28,10 @@ export class Department {
 
   @Column({ name: 'dept-arabic-description', type: 'text', nullable: true })
   arabicDescription: string | null;
+
+  @Column({ name: 'requested_count', type: 'integer', nullable: true, default: null })
+  requestedCount: number | null;
+
+  @Column({ name: 'requested_reason', type: 'text', nullable: true, default: null })
+  requestedReason: string | null;
 }

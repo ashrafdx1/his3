@@ -52,6 +52,8 @@ export class DepartmentsService {
         'department-mgr-id': dept.departmentMgrId,
         'dept-arabic-name': dept.arabicName,
         'dept-arabic-description': dept.arabicDescription,
+        requestedCount: dept.requestedCount,
+        requestedReason: dept.requestedReason,
       });
     }
     return result;
@@ -102,6 +104,8 @@ export class DepartmentsService {
       'department-mgr-id': department.departmentMgrId,
       'dept-arabic-name': department.arabicName,
       'dept-arabic-description': department.arabicDescription,
+      requestedCount: department.requestedCount,
+      requestedReason: department.requestedReason,
     };
   }
 
@@ -333,5 +337,33 @@ export class DepartmentsService {
       dept.departmentMgrId = 0;
       await this.departmentRepository.save(dept);
     }
+  }
+
+  async requestEmployees(deptIdStr: string, wantedCount: number, reason?: string) {
+    const deptId = parseInt(deptIdStr, 10);
+    const dept = await this.departmentRepository.findOne({
+      where: { departmentId: deptId }
+    });
+    if (!dept) {
+      throw new NotFoundException(`Department ${deptId} not found.`);
+    }
+    dept.requestedCount = wantedCount;
+    dept.requestedReason = reason || null;
+    await this.departmentRepository.save(dept);
+    return dept;
+  }
+
+  async clearRequest(deptIdStr: string) {
+    const deptId = parseInt(deptIdStr, 10);
+    const dept = await this.departmentRepository.findOne({
+      where: { departmentId: deptId }
+    });
+    if (!dept) {
+      throw new NotFoundException(`Department ${deptId} not found.`);
+    }
+    dept.requestedCount = null;
+    dept.requestedReason = null;
+    await this.departmentRepository.save(dept);
+    return dept;
   }
 }
